@@ -1,6 +1,7 @@
 import { Link, useNavigate } from "react-router-dom";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
+import { useEffect, useState } from "react";
 import * as z from "zod";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -8,47 +9,68 @@ import { Card } from "@/components/ui/card";
 import { useToast } from "@/components/ui/use-toast";
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
 import { Heart, ArrowLeft, User, Lock } from "lucide-react";
+import { useAuth } from "@/hooks/useAuth";
 
 const loginSchema = z.object({
-  patientId: z.string().min(1, "Patient ID is required").min(3, "Patient ID must be at least 3 characters"),
+  email: z.string().min(1, "Email is required").email("Please enter a valid email"),
   password: z.string().min(1, "Password is required").min(6, "Password must be at least 6 characters"),
 });
 
 const PatientLogin = () => {
   const navigate = useNavigate();
   const { toast } = useToast();
+  const { signIn, signUp, user, loading } = useAuth();
+  const [isSignUp, setIsSignUp] = useState(false);
+
+  useEffect(() => {
+    if (user && !loading) {
+      navigate("/patient/dashboard");
+    }
+  }, [user, loading, navigate]);
 
   const form = useForm<z.infer<typeof loginSchema>>({
     resolver: zodResolver(loginSchema),
     defaultValues: {
-      patientId: "",
+      email: "",
       password: "",
     },
   });
 
   const handleSubmit = async (values: z.infer<typeof loginSchema>) => {
     try {
-      // Simulate login API call
-      await new Promise(resolve => setTimeout(resolve, 1500));
-
-      // Demo credentials check
-      if (values.patientId === "demo" && values.password === "password") {
-        toast({
-          title: "Login Successful",
-          description: "Welcome to your healthcare dashboard",
-        });
-        navigate("/patient/dashboard");
+      if (isSignUp) {
+        const { error } = await signUp(values.email, values.password, 'patient');
+        if (error) {
+          toast({
+            title: "Sign Up Failed",
+            description: error.message,
+            variant: "destructive",
+          });
+        } else {
+          toast({
+            title: "Sign Up Successful",
+            description: "Please check your email to verify your account",
+          });
+        }
       } else {
-        toast({
-          title: "Login Failed", 
-          description: "Invalid credentials. Try demo/password for demo access.",
-          variant: "destructive",
-        });
+        const { error } = await signIn(values.email, values.password);
+        if (error) {
+          toast({
+            title: "Login Failed",
+            description: error.message,
+            variant: "destructive",
+          });
+        } else {
+          toast({
+            title: "Login Successful",
+            description: "Welcome to your healthcare dashboard",
+          });
+        }
       }
     } catch (error) {
       toast({
-        title: "Login Error",
-        description: "An error occurred during login. Please try again.",
+        title: "Error",
+        description: "An unexpected error occurred",
         variant: "destructive",
       });
     }
@@ -72,7 +94,7 @@ const PatientLogin = () => {
             </div>
             <h1 className="healthcare-heading mb-2">Patient Portal</h1>
             <p className="text-muted-foreground">
-              Sign in to access your recovery journey
+              {isSignUp ? "Create your patient account" : "Sign in to access your recovery journey"}
             </p>
           </div>
 
@@ -81,15 +103,16 @@ const PatientLogin = () => {
             <form onSubmit={form.handleSubmit(handleSubmit)} className="space-y-6">
               <FormField
                 control={form.control}
-                name="patientId"
+                name="email"
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel>Patient ID</FormLabel>
+                    <FormLabel>Email Address</FormLabel>
                     <FormControl>
                       <div className="relative">
                         <User className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground" />
                         <Input
-                          placeholder="Enter your patient ID"
+                          type="email"
+                          placeholder="Enter your email"
                           className="pl-10"
                           {...field}
                         />
@@ -128,16 +151,20 @@ const PatientLogin = () => {
                 size="lg"
                 disabled={form.formState.isSubmitting}
               >
-                {form.formState.isSubmitting ? "Signing In..." : "Sign In"}
+                {form.formState.isSubmitting ? (isSignUp ? "Creating Account..." : "Signing In...") : (isSignUp ? "Create Account" : "Sign In")}
               </Button>
             </form>
           </Form>
 
           {/* Footer Links */}
           <div className="mt-6 text-center space-y-2">
-            <p className="text-xs text-muted-foreground bg-muted/50 p-2 rounded">
-              Demo: Use "demo" / "password" to login
-            </p>
+            <button
+              type="button"
+              onClick={() => setIsSignUp(!isSignUp)}
+              className="text-sm text-secondary hover:underline"
+            >
+              {isSignUp ? "Already have an account? Sign in" : "Need an account? Sign up"}
+            </button>
             <p className="text-sm text-muted-foreground">
               Need help? Contact your healthcare provider
             </p>

@@ -16,10 +16,19 @@ import {
 import { HospitalSummaryCards } from "@/components/HospitalSummaryCards";
 import { PatientRiskTable } from "@/components/PatientRiskTable";
 import { AnalyticsCharts } from "@/components/AnalyticsCharts";
+import { ProtectedRoute } from "@/components/ProtectedRoute";
+import { useAuth } from "@/hooks/useAuth";
 
 const HospitalDashboard = () => {
+  const { signOut } = useAuth();
+
+  const handleLogout = async () => {
+    await signOut();
+  };
+
   return (
-    <div className="min-h-screen bg-gradient-to-br from-background via-primary-soft/20 to-secondary-soft/20">
+    <ProtectedRoute requiredRole="hospital_staff">
+      <div className="min-h-screen bg-gradient-to-br from-background via-primary-soft/20 to-secondary-soft/20">
       {/* Header */}
       <header className="healthcare-card border-b-0 rounded-none p-4 shadow-md">
         <div className="container mx-auto flex justify-between items-center">
@@ -32,12 +41,10 @@ const HospitalDashboard = () => {
               <p className="text-muted-foreground">Patient readmission analytics and insights</p>
             </div>
           </div>
-          <Link to="/hospital/login">
-            <Button variant="outline" size="sm" className="flex items-center space-x-2">
-              <LogOut className="h-4 w-4" />
-              <span>Logout</span>
-            </Button>
-          </Link>
+          <Button variant="outline" size="sm" className="flex items-center space-x-2" onClick={handleLogout}>
+            <LogOut className="h-4 w-4" />
+            <span>Logout</span>
+          </Button>
         </div>
       </header>
 
@@ -66,6 +73,7 @@ const HospitalDashboard = () => {
         </div>
       </div>
     </div>
+    </ProtectedRoute>
   );
 };
 

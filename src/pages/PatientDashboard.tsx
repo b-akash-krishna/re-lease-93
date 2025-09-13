@@ -24,23 +24,31 @@ import { PatientDetails } from "@/components/PatientDetails";
 import { MedicationTab } from "@/components/MedicationTab";
 import { PostDischargeTab } from "@/components/PostDischargeTab";
 import { CheckupTab } from "@/components/CheckupTab";
+import { ProtectedRoute } from "@/components/ProtectedRoute";
+import { useAuth } from "@/hooks/useAuth";
 
 const PatientDashboard = () => {
   const [activeTab, setActiveTab] = useState("details");
+  const { signOut, profile } = useAuth();
+
+  const handleLogout = async () => {
+    await signOut();
+  };
   
   // Mock patient data
   const patient = {
-    name: "John Smith",
+    name: profile?.display_name || "Patient",
     age: 45,
     gender: "Male",
-    patientId: "PT001234",
+    patientId: profile?.patient_id || profile?.id || "PT001234",
     diagnosis: "Pneumonia",
     dischargeDate: "2024-01-10",
     nextCheckup: "2024-01-17"
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-background via-primary-soft/20 to-secondary-soft/20">
+    <ProtectedRoute requiredRole="patient">
+      <div className="min-h-screen bg-gradient-to-br from-background via-primary-soft/20 to-secondary-soft/20">
       {/* Header */}
       <header className="healthcare-card border-b-0 rounded-none p-4 shadow-md">
         <div className="container mx-auto flex justify-between items-center">
@@ -53,12 +61,10 @@ const PatientDashboard = () => {
               <p className="text-muted-foreground">here's your recovery journey</p>
             </div>
           </div>
-          <Link to="/patient/login">
-            <Button variant="outline" size="sm" className="flex items-center space-x-2">
-              <LogOut className="h-4 w-4" />
-              <span>Logout</span>
-            </Button>
-          </Link>
+          <Button variant="outline" size="sm" className="flex items-center space-x-2" onClick={handleLogout}>
+            <LogOut className="h-4 w-4" />
+            <span>Logout</span>
+          </Button>
         </div>
       </header>
 
@@ -162,6 +168,7 @@ const PatientDashboard = () => {
         </Tabs>
       </div>
     </div>
+    </ProtectedRoute>
   );
 };
 
