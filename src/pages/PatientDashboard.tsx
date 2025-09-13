@@ -1,0 +1,168 @@
+import { useState } from "react";
+import { Link } from "react-router-dom";
+import { Button } from "@/components/ui/button";
+import { Card } from "@/components/ui/card";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Badge } from "@/components/ui/badge";
+import { Progress } from "@/components/ui/progress";
+import { 
+  Heart, 
+  LogOut, 
+  User, 
+  Pill, 
+  Calendar, 
+  ClipboardCheck,
+  Upload,
+  MessageCircle,
+  Clock,
+  Apple,
+  X,
+  CheckCircle,
+  AlertCircle
+} from "lucide-react";
+import { PatientDetails } from "@/components/PatientDetails";
+import { MedicationTab } from "@/components/MedicationTab";
+import { PostDischargeTab } from "@/components/PostDischargeTab";
+import { CheckupTab } from "@/components/CheckupTab";
+
+const PatientDashboard = () => {
+  const [activeTab, setActiveTab] = useState("details");
+  
+  // Mock patient data
+  const patient = {
+    name: "John Smith",
+    age: 45,
+    gender: "Male",
+    patientId: "PT001234",
+    diagnosis: "Pneumonia",
+    dischargeDate: "2024-01-10",
+    nextCheckup: "2024-01-17"
+  };
+
+  return (
+    <div className="min-h-screen bg-gradient-to-br from-background via-primary-soft/20 to-secondary-soft/20">
+      {/* Header */}
+      <header className="healthcare-card border-b-0 rounded-none p-4 shadow-md">
+        <div className="container mx-auto flex justify-between items-center">
+          <div className="flex items-center space-x-4">
+            <Heart className="h-8 w-8 text-primary" />
+            <div>
+              <h1 className="text-2xl font-bold text-foreground">
+                Hi {patient.name}, 
+              </h1>
+              <p className="text-muted-foreground">here's your recovery journey</p>
+            </div>
+          </div>
+          <Link to="/patient/login">
+            <Button variant="outline" size="sm" className="flex items-center space-x-2">
+              <LogOut className="h-4 w-4" />
+              <span>Logout</span>
+            </Button>
+          </Link>
+        </div>
+      </header>
+
+      {/* Main Content */}
+      <div className="container mx-auto p-4 pb-20">
+        {/* Quick Stats */}
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+          <Card className="healthcare-card p-4">
+            <div className="flex items-center space-x-3">
+              <div className="p-2 bg-success/10 rounded-full">
+                <CheckCircle className="h-6 w-6 text-success" />
+              </div>
+              <div>
+                <p className="text-sm text-muted-foreground">Recovery Progress</p>
+                <div className="flex items-center space-x-2">
+                  <Progress value={75} className="w-20 h-2" />
+                  <span className="text-lg font-semibold text-success">75%</span>
+                </div>
+              </div>
+            </div>
+          </Card>
+          
+          <Card className="healthcare-card p-4">
+            <div className="flex items-center space-x-3">
+              <div className="p-2 bg-primary/10 rounded-full">
+                <Pill className="h-6 w-6 text-primary" />
+              </div>
+              <div>
+                <p className="text-sm text-muted-foreground">Today's Medications</p>
+                <p className="text-lg font-semibold text-foreground">3 of 4 taken</p>
+              </div>
+            </div>
+          </Card>
+          
+          <Card className="healthcare-card p-4">
+            <div className="flex items-center space-x-3">
+              <div className="p-2 bg-warning/10 rounded-full">
+                <Calendar className="h-6 w-6 text-warning" />
+              </div>
+              <div>
+                <p className="text-sm text-muted-foreground">Next Checkup</p>
+                <p className="text-lg font-semibold text-foreground">In 2 days</p>
+              </div>
+            </div>
+          </Card>
+        </div>
+
+        {/* Tabs Content */}
+        <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-6">
+          <TabsContent value="details">
+            <PatientDetails patient={patient} />
+          </TabsContent>
+          
+          <TabsContent value="medications">
+            <MedicationTab />
+          </TabsContent>
+          
+          <TabsContent value="plan">
+            <PostDischargeTab patient={patient} />
+          </TabsContent>
+          
+          <TabsContent value="checkup">
+            <CheckupTab patient={patient} />
+          </TabsContent>
+
+          {/* Bottom Navigation */}
+          <div className="fixed bottom-0 left-0 right-0 bg-card border-t border-border shadow-lg">
+            <div className="container mx-auto">
+              <TabsList className="grid w-full grid-cols-4 h-16 bg-transparent">
+                <TabsTrigger 
+                  value="details" 
+                  className="flex flex-col items-center space-y-1 data-[state=active]:bg-primary/10 data-[state=active]:text-primary"
+                >
+                  <User className="h-5 w-5" />
+                  <span className="text-xs">Details</span>
+                </TabsTrigger>
+                <TabsTrigger 
+                  value="medications"
+                  className="flex flex-col items-center space-y-1 data-[state=active]:bg-primary/10 data-[state=active]:text-primary"
+                >
+                  <Pill className="h-5 w-5" />
+                  <span className="text-xs">Medications</span>
+                </TabsTrigger>
+                <TabsTrigger 
+                  value="plan"
+                  className="flex flex-col items-center space-y-1 data-[state=active]:bg-primary/10 data-[state=active]:text-primary"
+                >
+                  <Calendar className="h-5 w-5" />
+                  <span className="text-xs">Post-Discharge</span>
+                </TabsTrigger>
+                <TabsTrigger 
+                  value="checkup"
+                  className="flex flex-col items-center space-y-1 data-[state=active]:bg-primary/10 data-[state=active]:text-primary"
+                >
+                  <ClipboardCheck className="h-5 w-5" />
+                  <span className="text-xs">Checkup</span>
+                </TabsTrigger>
+              </TabsList>
+            </div>
+          </div>
+        </Tabs>
+      </div>
+    </div>
+  );
+};
+
+export default PatientDashboard;
