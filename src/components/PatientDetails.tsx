@@ -31,8 +31,10 @@ import { useAuth } from "@/hooks/useAuth";
 import { Database } from "@/integrations/supabase/types";
 
 type PatientDetailsRow = Database["public"]["Tables"]["patient_details"]["Row"];
-type PatientDetailsInsert = Database["public"]["Tables"]["patient_details"]["Insert"];
-type PatientDetailsUpdate = Database["public"]["Tables"]["patient_details"]["Update"];
+type PatientDetailsInsert =
+    Database["public"]["Tables"]["patient_details"]["Insert"];
+type PatientDetailsUpdate =
+    Database["public"]["Tables"]["patient_details"]["Update"];
 
 type PatientDetailsWithHospital = PatientDetailsRow & {
     hospitals: {
@@ -133,11 +135,14 @@ export const PatientDetails = () => {
         try {
             setSaving(true);
 
+            // Filter out the 'hospitals' property before sending the update request
+            const { hospitals, ...updatePayload } = editedDetails as PatientDetailsWithHospital;
+
             if (patientDetails) {
                 // Update existing patient details
                 const { error } = await supabase
                     .from("patient_details")
-                    .update(editedDetails)
+                    .update(updatePayload as PatientDetailsUpdate)
                     .eq("profile_id", profile.id);
 
                 if (error) throw error;
@@ -145,10 +150,10 @@ export const PatientDetails = () => {
                 // Create new patient details
                 const insertData: PatientDetailsInsert = {
                     profile_id: profile.id,
-                    first_name: editedDetails.first_name || "",
-                    last_name: editedDetails.last_name || "",
-                    date_of_birth: editedDetails.date_of_birth || "",
-                    ...editedDetails,
+                    first_name: updatePayload.first_name || "",
+                    last_name: updatePayload.last_name || "",
+                    date_of_birth: updatePayload.date_of_birth || "",
+                    ...updatePayload,
                 };
 
                 const { error } = await supabase

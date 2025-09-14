@@ -497,7 +497,7 @@ export const MedicationTab = () => {
     const [isSaving, setIsSaving] = useState(false);
     const { profile } = useAuth();
     
-    // Fetch medications from the database on component mount
+    // Fetch patient ID and medications on component mount
     const fetchMedications = useCallback(async () => {
       if (!profile?.id) {
           setIsLoading(false);
@@ -589,17 +589,19 @@ export const MedicationTab = () => {
             toast({ title: "Error", description: "Patient details not found.", variant: "destructive" });
             return;
         }
-
+        
         if (parsedMedications.length > 0) {
           // Clear existing medications before inserting new ones
           await supabase.from('medications').delete().eq('patient_id', patientData.id);
           
+          const insertPayload = parsedMedications.map(med => ({
+            ...med,
+            patient_id: patientData.id,
+          }));
+          
           const { data, error } = await supabase
               .from('medications')
-              .insert(parsedMedications.map(med => ({
-                ...med,
-                patient_id: patientData.id,
-              })))
+              .insert(insertPayload)
               .select();
               
           if (error) throw error;
@@ -663,7 +665,7 @@ export const MedicationTab = () => {
             
             const { error } = await supabase
               .from('medications')
-              .update({ taken: updatedTaken })
+              .update({ taken: updatedTaken as boolean[] })
               .eq('id', medId);
               
             if (error) throw error;
