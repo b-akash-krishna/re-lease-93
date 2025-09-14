@@ -20,13 +20,18 @@ import * as pdfjsLib from 'pdfjs-dist';
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
 import { GeminiService } from "@/integrations/gemini";
+import { Database } from "@/integrations/supabase/types";
 
 // Configure pdfjs-dist worker. Make sure 'pdf.worker.min.js' is in your public folder.
 pdfjsLib.GlobalWorkerOptions.workerSrc = '/pdf.worker.min.js';
 
 // --- TYPE DEFINITIONS ---
+// Use the new type from your updated Supabase types file
+type MedicationRow = Database["public"]["Tables"]["medications"]["Row"];
+type MedicationInsert = Database["public"]["Tables"]["medications"]["Insert"];
+
 export interface Medication {
-  id: number;
+  id: number; // This will now be the UUID from the database
   name: string;
   dosage: string;
   frequency: string;
@@ -80,10 +85,9 @@ const extractTextFromPDF = async (file: File): Promise<string> => {
   });
 };
 
-const parseMedicationsFromText = (text: string): Medication[] => {
+const parseMedicationsFromText = (text: string): MedicationInsert[] => {
     const cleanText = text.replace(/(\r\n|\n|\r)/gm, " ").replace(/\s+/g, ' ').trim();
-    const medications: Medication[] = [];
-    let medicationId = 1;
+    const medications: MedicationInsert[] = [];
 
     const medicationPatterns = [
         /(?<name>[A-Z][a-zA-Z\s\-()]+?)\s+(?<dosage>\d+(?:\.\d+)?\s*(?:mg|mcg|g|ml|units?|puffs?|tablets?))\s*[-–]?\s*(?<freq>.*?)(?=\s*[A-Z][a-zA-Z\s\-()]+?\s+\d+|$)/gi
@@ -146,7 +150,6 @@ const parseMedicationsFromText = (text: string): Medication[] => {
             }
 
             medications.push({
-                id: medicationId++,
                 name: name.trim(),
                 dosage: dosage.trim(),
                 frequency: frequency || 'As prescribed',
@@ -156,7 +159,8 @@ const parseMedicationsFromText = (text: string): Medication[] => {
             });
         }
     }
-
+    
+    // Filtering duplicates. Note: This assumes `name` and `dosage` are unique identifiers.
     const uniqueMedications = medications.filter((med, index, self) =>
         index === self.findIndex(m =>
             m.name.toLowerCase() === med.name.toLowerCase() &&
@@ -237,8 +241,9 @@ const FileUploadCard: React.FC<{
 
 const MedicationCard: React.FC<{
   med: Medication;
-  onToggle: (medId: number, timeIndex: number) => void;
-}> = ({ med, onToggle }) => (
+  onToggle: (medId: number | string, timeIndex: number) => void;
+  isSaving?: boolean;
+}> = ({ med, onToggle, isSaving }) => (
   <Card className="bg-white border border-gray-200 rounded-lg p-6 shadow-sm">
     <div className="flex items-start space-x-4">
       <div className="p-3 bg-blue-50 rounded-full"><Pill className="h-6 w-6 text-blue-600" /></div>
@@ -275,6 +280,7 @@ const MedicationCard: React.FC<{
                 variant={med.taken[index] ? "outline" : "default"}
                 size="sm"
                 className={med.taken[index] ? "text-gray-700" : "bg-blue-600 hover:bg-blue-700"}
+                disabled={isSaving}
               >
                 {med.taken[index] ? 'Undo' : 'Mark as Taken'}
               </Button>
@@ -288,9 +294,10 @@ const MedicationCard: React.FC<{
 
 const MedicationList: React.FC<{
   medications: Medication[];
-  onToggleMedication: (medId: number, timeIndex: number) => void;
+  onToggleMedication: (medId: number | string, timeIndex: number) => void;
   isLoading: boolean;
-}> = ({ medications, onToggleMedication, isLoading }) => {
+  isSaving: boolean;
+}> = ({ medications, onToggleMedication, isLoading, isSaving }) => {
   if (isLoading) {
     return (
         <Card className="bg-white border-2 border-dashed border-gray-300 rounded-lg p-8 shadow-sm text-center">
@@ -305,7 +312,7 @@ const MedicationList: React.FC<{
       <h3 className="text-xl font-semibold text-gray-900">Your Medications</h3>
       {medications.length > 0 ? (
         medications.map((med) => (
-          <MedicationCard key={med.id} med={med} onToggle={onToggleMedication} />
+          <MedicationCard key={med.id} med={med} onToggle={onToggleMedication} isSaving={isSaving} />
         ))
       ) : (
         <Card className="bg-white border-2 border-dashed border-gray-300 rounded-lg p-8 shadow-sm text-center">
@@ -320,25 +327,23 @@ const MedicationList: React.FC<{
   );
 }
 
-const Chatbot: React.FC<{ 
-  medications: Medication[]; 
+const Chatbot: React.FC<{
+  medications: Medication[];
 }> = ({ medications }) => {
   const [messages, setMessages] = useState<ChatMessage[]>(INITIAL_CHAT_MESSAGES);
   const [newMessage, setNewMessage] = useState("");
   const chatContainerRef = useRef<HTMLDivElement>(null);
-  
+
   const GEMINI_API_KEY = import.meta.env.VITE_GEMINI_API_KEY;
   const geminiService = GEMINI_API_KEY ? new GeminiService(GEMINI_API_KEY) : null;
 
   const getFallbackResponse = useCallback((message: string): string => {
     const lowerMessage = message.toLowerCase();
-    
     for (const med of medications) {
       if (lowerMessage.includes(med.name.toLowerCase())) {
         return `Regarding ${med.name}: The prescribed dosage is ${med.dosage}, to be taken ${med.frequency.toLowerCase()}. It's primarily for ${med.purpose.toLowerCase()}. Always follow your doctor's advice.`;
       }
     }
-    
     if (lowerMessage.includes("side effect")) {
       return "Common side effects are often mild. However, if you experience severe reactions like difficulty breathing, a severe rash, or swelling, please contact your doctor or emergency services immediately.";
     } else if (lowerMessage.includes("when") || lowerMessage.includes("time")) {
@@ -375,7 +380,6 @@ const Chatbot: React.FC<{
 
     try {
       let botResponse: string;
-      
       if (geminiService && GEMINI_API_KEY) {
         botResponse = await geminiService.generateResponse(currentMessage, medications);
       } else {
@@ -390,7 +394,6 @@ const Chatbot: React.FC<{
             : msg
         )
       );
-
     } catch (error) {
       console.error('Error getting bot response:', error);
       const errorMessage = error instanceof Error ? error.message : 'An error occurred';
@@ -474,48 +477,35 @@ const Chatbot: React.FC<{
   );
 }
 
+// --- MAIN COMPONENT ---
 export const MedicationTab = () => {
     const { toast } = useToast();
-    const [medications, setMedications] = useState<Medication[]>([]);
+    const [medications, setMedications] = useState<MedicationRow[]>([]);
     const [uploadedFile, setUploadedFile] = useState<File | null>(null);
     const [isProcessing, setIsProcessing] = useState(false);
     const [isLoading, setIsLoading] = useState(true);
+    const [isSaving, setIsSaving] = useState(false);
     const { profile } = useAuth();
     
-    // Fetch medications from the database on component mount
+    // Fetch medications from the database on component mount and when profile changes
     useEffect(() => {
         const fetchMedications = async () => {
-            if (!profile?.id) return;
-            // NOTE: This assumes a 'medications' table exists and is linked to the patient profile.
-            // A more robust schema might be needed for a full implementation.
+            if (!profile?.id) {
+                setIsLoading(false);
+                return;
+            }
             try {
-                // Here we simulate fetching the initial medications from the `medical_history`
-                // table. In a real-world scenario, you might have a dedicated `medications` table
-                // for the patient's current active meds.
-                const { data, error } = await supabase
-                    .from('medical_history')
-                    .select('medications_prescribed')
-                    .eq('patient_id', profile.id)
-                    .order('created_at', { ascending: false })
-                    .limit(1)
-                    .single();
+                setIsLoading(true);
+                const { data, error, status } = await supabase
+                    .from('medications')
+                    .select('*')
+                    .eq('patient_id', profile.id); // Assuming 'patient_id' is the profile's UUID
 
-                if (error && error.code !== 'PGRST116') {
+                if (error && status !== 406) {
                     throw error;
                 }
                 
-                if (data && data.medications_prescribed) {
-                    const medicationsList = data.medications_prescribed.map((medication, index) => ({
-                        id: index + 1,
-                        name: medication,
-                        dosage: '', // Assuming this is not in the array
-                        frequency: '', // Assuming this is not in the array
-                        timing: [], // Assuming this is not in the array
-                        taken: [], // Assuming this is not in the array
-                        purpose: 'As prescribed', // Placeholder
-                    }));
-                    setMedications(medicationsList);
-                }
+                setMedications(data || []);
             } catch (error) {
                 console.error("Failed to fetch medications:", error);
                 toast({
@@ -549,15 +539,24 @@ export const MedicationTab = () => {
       
       try {
         const text = await extractTextFromPDF(file);
-        const extractedMedications = parseMedicationsFromText(text);
+        const parsedMedications = parseMedicationsFromText(text);
 
-        if (extractedMedications.length > 0) {
-          setMedications(extractedMedications);
+        if (parsedMedications.length > 0) {
+          const { error } = await supabase
+              .from('medications')
+              .insert(parsedMedications.map(med => ({
+                ...med,
+                patient_id: profile?.id,
+              })));
+              
+          if (error) throw error;
+          
+          setMedications(parsedMedications.map(m => ({ ...m, id: Math.random() })) as MedicationRow[]); // Fallback ID for display
+
           toast({
             title: "Success!",
-            description: `Extracted ${extractedMedications.length} medications from your summary.`,
+            description: `Extracted ${parsedMedications.length} medications from your summary.`,
           });
-          // TODO: Save to database
         } else {
           setMedications([]);
           toast({
@@ -574,21 +573,46 @@ export const MedicationTab = () => {
       }
     };
 
-    const removeFile = () => {
-      setUploadedFile(null);
-      setMedications([]); // Reset to empty array instead of static data
-      toast({ title: "File Removed", description: "Medication list has been reset." });
+    const removeFile = async () => {
+      if (!profile?.id) return;
+      try {
+        await supabase.from('medications').delete().eq('patient_id', profile.id);
+        setUploadedFile(null);
+        setMedications([]);
+        toast({ title: "Medications Cleared", description: "All medications have been removed from your profile." });
+      } catch (error) {
+        console.error("Failed to remove medications:", error);
+        toast({ title: "Error", description: "Could not remove medications. Please try again.", variant: "destructive" });
+      }
     };
 
-    const toggleMedication = (medId: number, timeIndex: number) => {
-      setMedications(prev =>
-        prev.map(med =>
-          med.id === medId
-            ? { ...med, taken: med.taken.map((t, i) => (i === timeIndex ? !t : t)) }
-            : med
-        )
-      );
-      toast({ title: "Status Updated", description: "Your medication log has been updated." });
+    const toggleMedication = async (medId: string, timeIndex: number) => {
+        if (!profile?.id) return;
+        setIsSaving(true);
+        try {
+            const currentMedication = medications.find(m => m.id === medId);
+            if (!currentMedication) return;
+
+            const updatedTaken = currentMedication.taken.map((t, i) => (i === timeIndex ? !t : t));
+            
+            const { error } = await supabase
+              .from('medications')
+              .update({ taken: updatedTaken })
+              .eq('id', medId);
+              
+            if (error) throw error;
+            
+            setMedications(prev => prev.map(med =>
+                med.id === medId ? { ...med, taken: updatedTaken } : med
+            ));
+            
+            toast({ title: "Status Updated", description: "Your medication log has been updated." });
+        } catch (error) {
+            console.error("Failed to update medication status:", error);
+            toast({ title: "Error", description: "Could not update medication status.", variant: "destructive" });
+        } finally {
+            setIsSaving(false);
+        }
     };
 
     return (
@@ -603,6 +627,7 @@ export const MedicationTab = () => {
           medications={medications}
           onToggleMedication={toggleMedication}
           isLoading={isLoading}
+          isSaving={isSaving}
         />
         <Chatbot medications={medications} />
       </div>
