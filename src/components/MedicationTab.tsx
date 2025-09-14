@@ -1,49 +1,32 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { useToast } from "@/components/ui/use-toast";
-import { 
-  Upload, 
-  MessageCircle, 
-  Pill, 
-  Clock, 
-  CheckCircle, 
+import {
+  Upload,
+  MessageCircle,
+  Pill,
+  Clock,
+  CheckCircle,
   FileText,
   Bot
 } from "lucide-react";
+import { supabase } from "@/integrations/supabase/client";
+import { useAuth } from "@/hooks/useAuth";
+
+interface Medication {
+  id: number;
+  name: string;
+  dosage: string;
+  frequency: string;
+  timing: string[];
+  taken: boolean[];
+  purpose: string;
+}
 
 export const MedicationTab = () => {
-  const [medications] = useState([
-    {
-      id: 1,
-      name: "Amoxicillin",
-      dosage: "500mg",
-      frequency: "3 times daily",
-      timing: ["8:00 AM", "2:00 PM", "8:00 PM"],
-      taken: [true, true, false],
-      purpose: "Antibiotic for pneumonia treatment"
-    },
-    {
-      id: 2,
-      name: "Paracetamol",
-      dosage: "650mg",
-      frequency: "Every 6 hours as needed",
-      timing: ["6:00 AM", "12:00 PM", "6:00 PM", "12:00 AM"],
-      taken: [true, false, false, false],
-      purpose: "Pain relief and fever reduction"
-    },
-    {
-      id: 3,
-      name: "Inhaler (Salbutamol)",
-      dosage: "2 puffs",
-      frequency: "4 times daily",
-      timing: ["Morning", "Afternoon", "Evening", "Night"],
-      taken: [true, true, false, false],
-      purpose: "Bronchodilator for breathing support"
-    }
-  ]);
-
+  const [medications, setMedications] = useState<Medication[]>([]);
   const [chatMessages, setChatMessages] = useState([
     {
       id: 1,
@@ -51,22 +34,98 @@ export const MedicationTab = () => {
       message: "Hello! I'm here to help you understand your medications. Feel free to ask me about any of your prescribed medicines."
     }
   ]);
-  
   const [newMessage, setNewMessage] = useState("");
+  const [loading, setLoading] = useState(true);
+  
   const { toast } = useToast();
+  const { profile } = useAuth();
 
-  const handleUploadSummary = () => {
+  // In a real implementation, this would fetch data from the backend.
+  // For now, we'll keep the mock data to simulate.
+  useEffect(() => {
+    // Simulate fetching data from Supabase
+    setLoading(true);
+    const mockMedications = [
+      {
+        id: 1,
+        name: "Amoxicillin",
+        dosage: "500mg",
+        frequency: "3 times daily",
+        timing: ["8:00 AM", "2:00 PM", "8:00 PM"],
+        taken: [true, true, false],
+        purpose: "Antibiotic for pneumonia treatment"
+      },
+      {
+        id: 2,
+        name: "Paracetamol",
+        dosage: "650mg",
+        frequency: "Every 6 hours as needed",
+        timing: ["6:00 AM", "12:00 PM", "6:00 PM", "12:00 AM"],
+        taken: [true, false, false, false],
+        purpose: "Pain relief and fever reduction"
+      },
+      {
+        id: 3,
+        name: "Inhaler (Salbutamol)",
+        dosage: "2 puffs",
+        frequency: "4 times daily",
+        timing: ["Morning", "Afternoon", "Evening", "Night"],
+        taken: [true, true, false, false],
+        purpose: "Bronchodilator for breathing support"
+      }
+    ];
+    setMedications(mockMedications);
+    setLoading(false);
+  }, []);
+
+  const handleUploadSummary = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+
     toast({
       title: "Upload Started",
-      description: "Processing your discharge summary...",
+      description: `Processing file: ${file.name}...`,
     });
+
+    // TODO: Implement file upload to a backend API for processing
+    // const formData = new FormData();
+    // formData.append('file', file);
+    // await fetch('/api/upload-summary', { method: 'POST', body: formData });
+    
+    // For now, let's simulate a success toast
+    setTimeout(() => {
+      toast({
+        title: "Upload Complete",
+        description: "Discharge summary processed. Medications updated.",
+      });
+      // In a real scenario, you would refetch the medications here
+      // fetchMedications();
+    }, 2000);
   };
 
   const toggleMedication = (medId: number, timeIndex: number) => {
+    setMedications(prevMedications => 
+      prevMedications.map(med => 
+        med.id === medId 
+          ? {
+              ...med,
+              taken: med.taken.map((status, idx) =>
+                idx === timeIndex ? !status : status
+              ),
+            }
+          : med
+      )
+    );
     toast({
       title: "Medication Marked",
       description: "Don't forget to take your medicine as prescribed",
     });
+
+    // TODO: Persist this change to Supabase
+    // const updatedMedication = medications.find(med => med.id === medId);
+    // if (updatedMedication) {
+    //   supabase.from('medications').update({ taken: updatedMedication.taken }).eq('id', medId);
+    // }
   };
 
   const sendChatMessage = () => {
@@ -78,7 +137,7 @@ export const MedicationTab = () => {
       message: newMessage
     };
     
-    setChatMessages([...chatMessages, userMessage]);
+    setChatMessages(prev => [...prev, userMessage]);
     
     // Simulate bot response
     setTimeout(() => {
@@ -96,18 +155,39 @@ export const MedicationTab = () => {
   const getBotResponse = (message: string): string => {
     const lowerMessage = message.toLowerCase();
     
-    if (lowerMessage.includes("paracetamol")) {
-      return "Paracetamol helps reduce fever and mild pain. It's generally safe when taken as prescribed. Take it with food to avoid stomach upset.";
-    } else if (lowerMessage.includes("amoxicillin")) {
-      return "Amoxicillin is an antibiotic that fights bacterial infections like pneumonia. Take it at regular intervals and complete the full course even if you feel better.";
-    } else if (lowerMessage.includes("inhaler") || lowerMessage.includes("salbutamol")) {
-      return "Your inhaler helps open your airways and makes breathing easier. Shake it well before use and breathe in slowly and deeply.";
-    } else if (lowerMessage.includes("side effect")) {
+    const medicationNames = medications.map(med => med.name.toLowerCase());
+
+    for (const name of medicationNames) {
+      if (lowerMessage.includes(name.split(' ')[0])) {
+        // This is a placeholder for a more complex chatbot
+        return `I can provide information about ${name}. This medication is for a specific purpose. Please consult your healthcare provider for detailed advice.`;
+      }
+    }
+    
+    if (lowerMessage.includes("side effect")) {
       return "Common side effects are usually mild. Contact your doctor if you experience severe reactions like difficulty breathing, severe rash, or persistent nausea.";
     } else {
-      return "I can help you with information about your medications - Amoxicillin, Paracetamol, and your Inhaler. What would you like to know?";
+      return `I can help you with information about your current medications: ${medicationNames.join(', ')}. What would you like to know?`;
     }
   };
+
+  if (loading) {
+    return (
+        <div className="space-y-6 fade-in">
+            <div className="animate-pulse">
+                <Card className="healthcare-card p-6">
+                    <div className="flex items-center space-x-4">
+                        <div className="w-16 h-16 bg-muted rounded-full"></div>
+                        <div className="space-y-2">
+                            <div className="h-6 bg-muted rounded w-48"></div>
+                            <div className="h-4 bg-muted rounded w-32"></div>
+                        </div>
+                    </div>
+                </Card>
+            </div>
+        </div>
+    );
+  }
 
   return (
     <div className="space-y-6 fade-in">
@@ -119,10 +199,21 @@ export const MedicationTab = () => {
           <p className="text-muted-foreground mb-4">
             Upload your hospital discharge summary to automatically extract medication information
           </p>
-          <Button onClick={handleUploadSummary} className="bg-primary hover:bg-primary/90">
-            <Upload className="h-4 w-4 mr-2" />
-            Choose File to Upload
-          </Button>
+          <label htmlFor="file-upload" className="cursor-pointer">
+            <Button asChild className="bg-primary hover:bg-primary/90">
+              <span className="flex items-center">
+                <Upload className="h-4 w-4 mr-2" />
+                Choose File to Upload
+              </span>
+            </Button>
+            <input
+              id="file-upload"
+              type="file"
+              accept=".pdf"
+              onChange={handleUploadSummary}
+              className="sr-only"
+            />
+          </label>
         </div>
       </Card>
 
@@ -130,52 +221,56 @@ export const MedicationTab = () => {
       <div className="space-y-4">
         <h3 className="healthcare-heading">Your Medications</h3>
         
-        {medications.map((med) => (
-          <Card key={med.id} className="healthcare-card p-6">
-            <div className="flex items-start justify-between mb-4">
-              <div className="flex items-center space-x-3">
-                <div className="p-2 bg-primary/10 rounded-full">
-                  <Pill className="h-6 w-6 text-primary" />
+        {medications.length > 0 ? (
+          medications.map((med) => (
+            <Card key={med.id} className="healthcare-card p-6">
+              <div className="flex items-start justify-between mb-4">
+                <div className="flex items-center space-x-3">
+                  <div className="p-2 bg-primary/10 rounded-full">
+                    <Pill className="h-6 w-6 text-primary" />
+                  </div>
+                  <div>
+                    <h4 className="font-semibold text-lg">{med.name}</h4>
+                    <p className="text-muted-foreground">{med.purpose}</p>
+                  </div>
                 </div>
-                <div>
-                  <h4 className="font-semibold text-lg">{med.name}</h4>
-                  <p className="text-muted-foreground">{med.purpose}</p>
-                </div>
+                <Badge variant="outline">{med.frequency}</Badge>
               </div>
-              <Badge variant="outline">{med.frequency}</Badge>
-            </div>
-            
-            <div className="mb-4">
-              <p className="text-sm text-muted-foreground mb-2">Dosage: {med.dosage}</p>
               
-              <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
-                {med.timing.map((time, index) => (
-                  <button
-                    key={index}
-                    onClick={() => toggleMedication(med.id, index)}
-                    className={`p-3 rounded-lg border text-center transition-all ${
-                      med.taken[index] 
-                        ? "bg-success/10 border-success/20 text-success" 
-                        : "bg-muted border-border hover:bg-muted/80"
-                    }`}
-                  >
-                    <div className="flex items-center justify-center space-x-2">
-                      {med.taken[index] ? (
-                        <CheckCircle className="h-4 w-4" />
-                      ) : (
-                        <Clock className="h-4 w-4" />
-                      )}
-                      <span className="text-sm font-medium">{time}</span>
-                    </div>
-                    <p className="text-xs mt-1">
-                      {med.taken[index] ? "Taken" : "Pending"}
-                    </p>
-                  </button>
-                ))}
+              <div className="mb-4">
+                <p className="text-sm text-muted-foreground mb-2">Dosage: {med.dosage}</p>
+                
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
+                  {med.timing.map((time, index) => (
+                    <button
+                      key={index}
+                      onClick={() => toggleMedication(med.id, index)}
+                      className={`p-3 rounded-lg border text-center transition-all ${
+                        med.taken[index] 
+                          ? "bg-success/10 border-success/20 text-success" 
+                          : "bg-muted border-border hover:bg-muted/80"
+                      }`}
+                    >
+                      <div className="flex items-center justify-center space-x-2">
+                        {med.taken[index] ? (
+                          <CheckCircle className="h-4 w-4" />
+                        ) : (
+                          <Clock className="h-4 w-4" />
+                        )}
+                        <span className="text-sm font-medium">{time}</span>
+                      </div>
+                      <p className="text-xs mt-1">
+                        {med.taken[index] ? "Taken" : "Pending"}
+                      </p>
+                    </button>
+                  ))}
+                </div>
               </div>
-            </div>
-          </Card>
-        ))}
+            </Card>
+          ))
+        ) : (
+          <p className="text-center text-muted-foreground">No medications found. Please upload a discharge summary.</p>
+        )}
       </div>
 
       {/* Medication Chatbot */}
