@@ -26,12 +26,13 @@ import { Database } from "@/integrations/supabase/types";
 pdfjsLib.GlobalWorkerOptions.workerSrc = '/pdf.worker.min.js';
 
 // --- TYPE DEFINITIONS ---
-// Use the new type from your updated Supabase types file
 type MedicationRow = Database["public"]["Tables"]["medications"]["Row"];
 type MedicationInsert = Database["public"]["Tables"]["medications"]["Insert"];
+type PatientDetailsRow = Database["public"]["Tables"]["patient_details"]["Row"];
 
 export interface Medication {
-  id: number; // This will now be the UUID from the database
+  id: string; // This will now be the UUID from the database
+  patient_id: string;
   name: string;
   dosage: string;
   frequency: string;
@@ -63,8 +64,10 @@ const extractTextFromPDF = async (file: File): Promise<string> => {
   return new Promise((resolve, reject) => {
     reader.onload = async (e) => {
       try {
+        console.log("FileReader loaded, starting PDF parsing...");
         const arrayBuffer = e.target?.result as ArrayBuffer;
         const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
+        console.log("PDF document loaded successfully. Number of pages:", pdf.numPages);
         let fullText = '';
         for (let i = 1; i <= pdf.numPages; i++) {
           const page = await pdf.getPage(i);
@@ -74,20 +77,24 @@ const extractTextFromPDF = async (file: File): Promise<string> => {
             .join(' ');
           fullText += pageText + '\n';
         }
+        console.log("Finished extracting text from PDF. Extracted text length:", fullText.length);
         resolve(fullText);
       } catch (error) {
-        console.error("Error reading PDF text:", error);
+        console.error("Error in PDF parsing process:", error);
         reject(new Error('Could not parse PDF text. The file might be corrupted or image-based.'));
       }
     };
-    reader.onerror = () => reject(new Error('Failed to read the file.'));
+    reader.onerror = () => {
+      console.error("FileReader failed to read the file.");
+      reject(new Error('Failed to read the file.'));
+    };
     reader.readAsArrayBuffer(file);
   });
 };
 
-const parseMedicationsFromText = (text: string): MedicationInsert[] => {
+const parseMedicationsFromText = (text: string): Omit<MedicationInsert, 'patient_id'>[] => {
     const cleanText = text.replace(/(\r\n|\n|\r)/gm, " ").replace(/\s+/g, ' ').trim();
-    const medications: MedicationInsert[] = [];
+    const medications: Omit<MedicationInsert, 'patient_id'>[] = [];
 
     const medicationPatterns = [
         /(?<name>[A-Z][a-zA-Z\s\-()]+?)\s+(?<dosage>\d+(?:\.\d+)?\s*(?:mg|mcg|g|ml|units?|puffs?|tablets?))\s*[-–]?\s*(?<freq>.*?)(?=\s*[A-Z][a-zA-Z\s\-()]+?\s+\d+|$)/gi
@@ -241,7 +248,7 @@ const FileUploadCard: React.FC<{
 
 const MedicationCard: React.FC<{
   med: Medication;
-  onToggle: (medId: number | string, timeIndex: number) => void;
+  onToggle: (medId: string, timeIndex: number) => void;
   isSaving?: boolean;
 }> = ({ med, onToggle, isSaving }) => (
   <Card className="bg-white border border-gray-200 rounded-lg p-6 shadow-sm">
@@ -294,7 +301,7 @@ const MedicationCard: React.FC<{
 
 const MedicationList: React.FC<{
   medications: Medication[];
-  onToggleMedication: (medId: number | string, timeIndex: number) => void;
+  onToggleMedication: (medId: string, timeIndex: number) => void;
   isLoading: boolean;
   isSaving: boolean;
 }> = ({ medications, onToggleMedication, isLoading, isSaving }) => {
@@ -349,10 +356,10 @@ const Chatbot: React.FC<{
     } else if (lowerMessage.includes("when") || lowerMessage.includes("time")) {
       return "You can see the specific timings for each medication listed above. Sticking to this schedule is important for the best results.";
     } else if (lowerMessage.includes("hello") || lowerMessage.includes("hi")) {
-      return "Hello! To enable advanced AI assistance, please configure your Gemini API key above. I can still help with basic medication questions!";
+      return "Hello! I can still help with basic medication questions!";
     } else {
       const medNames = medications.map(med => med.name).join(', ');
-      return `I can provide basic information about your medications: ${medNames}. For more detailed AI-powered assistance, please configure your Gemini API key.`;
+      return `I can provide basic information about your medications: ${medNames}.`;
     }
   }, [medications]);
 
@@ -380,7 +387,7 @@ const Chatbot: React.FC<{
 
     try {
       let botResponse: string;
-      if (geminiService && GEMINI_API_KEY) {
+      if (geminiService) {
         botResponse = await geminiService.generateResponse(currentMessage, medications);
       } else {
         await new Promise(resolve => setTimeout(resolve, 800));
@@ -441,19 +448,19 @@ const Chatbot: React.FC<{
         </div>
       ) : null}
       
-      <div ref={chatContainerRef} className="space-y-4 mb-4 max-h-64 overflow-y-auto">
+      <div ref={chatContainerRef} className="space-y-4 mb-4 max-h-64 overflow-y-auto pr-2">
         {messages.map((msg) => (
-          <div
-            key={msg.id}
-            className={`flex ${msg.type === 'user' ? 'justify-end' : 'justify-start'}`}
-          >
-            <div
-              className={`max-w-xs p-3 rounded-lg ${
-                msg.type === 'user'
-                  ? 'bg-primary text-primary-foreground'
-                  : 'bg-muted text-muted-foreground'
-              }`}
-            >
+          <div key={msg.id} className={`flex items-end gap-2 ${msg.type === "user" ? "justify-end" : "justify-start"}`}>
+            {msg.type === 'bot' && (
+              <div className="p-2 bg-gray-100 rounded-full h-8 w-8 flex-shrink-0">
+                {msg.isLoading ? (
+                  <Loader2 className="h-4 w-4 text-gray-600 animate-spin" />
+                ) : (
+                  <Bot className="h-4 w-4 text-gray-600" />
+                )}
+              </div>
+            )}
+            <div className={`max-w-xs p-3 rounded-lg ${msg.type === "user" ? "bg-primary text-primary-foreground" : "bg-muted text-muted-foreground"}`}>
               <p className="text-sm">{msg.message}</p>
             </div>
           </div>
@@ -466,10 +473,13 @@ const Chatbot: React.FC<{
           value={newMessage}
           onChange={(e) => setNewMessage(e.target.value)}
           placeholder="Ask about your medications..."
-          className="flex-1 px-3 py-2 border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary"
-          onKeyPress={(e) => e.key === 'Enter' && handleSendMessage()}
+          className="flex-1 px-4 py-2 border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary"
+          onKeyPress={(e) => e.key === "Enter" && handleSendMessage()}
         />
-        <Button onClick={handleSendMessage} size="sm">
+        <Button 
+          onClick={handleSendMessage}
+          disabled={!newMessage.trim() || messages.some(msg => msg.isLoading)}
+        >
           <MessageCircle className="h-4 w-4" />
         </Button>
       </div>
@@ -487,39 +497,61 @@ export const MedicationTab = () => {
     const [isSaving, setIsSaving] = useState(false);
     const { profile } = useAuth();
     
-    // Fetch medications from the database on component mount and when profile changes
-    useEffect(() => {
-        const fetchMedications = async () => {
-            if (!profile?.id) {
-                setIsLoading(false);
-                return;
-            }
-            try {
-                setIsLoading(true);
-                const { data, error, status } = await supabase
-                    .from('medications')
-                    .select('*')
-                    .eq('patient_id', profile.id); // Assuming 'patient_id' is the profile's UUID
+    // Fetch medications from the database on component mount
+    const fetchMedications = useCallback(async () => {
+      if (!profile?.id) {
+          setIsLoading(false);
+          return;
+      }
+      try {
+          setIsLoading(true);
+          // 1. Fetch the patient's ID from patient_details table using their profile_id
+          const { data: patientData, error: patientError } = await supabase
+              .from('patient_details')
+              .select('id')
+              .eq('profile_id', profile.id)
+              .single();
 
-                if (error && status !== 406) {
-                    throw error;
-                }
-                
-                setMedications(data || []);
-            } catch (error) {
-                console.error("Failed to fetch medications:", error);
-                toast({
-                    title: "Error",
-                    description: "Could not load medications. Please try again later.",
-                    variant: "destructive",
-                });
-            } finally {
-                setIsLoading(false);
-            }
-        };
+          if (patientError) {
+              // This is an expected error if the patient profile hasn't been completed yet
+              if (patientError.code === 'PGRST116') {
+                  setMedications([]);
+                  return;
+              }
+              throw patientError;
+          }
 
-        fetchMedications();
+          if (!patientData) {
+              setMedications([]);
+              return;
+          }
+
+          // 2. Use the patient ID to fetch medications
+          const { data, error, status } = await supabase
+              .from('medications')
+              .select('*')
+              .eq('patient_id', patientData.id);
+
+          if (error && status !== 406) {
+              throw error;
+          }
+          
+          setMedications(data || []);
+      } catch (error) {
+          console.error("Failed to fetch medications:", error);
+          toast({
+              title: "Error",
+              description: "Could not load medications. Please try again later.",
+              variant: "destructive",
+          });
+      } finally {
+          setIsLoading(false);
+      }
     }, [profile?.id, toast]);
+
+    useEffect(() => {
+        fetchMedications();
+    }, [fetchMedications]);
     
     const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
       const file = e.target.files?.[0];
@@ -541,18 +573,38 @@ export const MedicationTab = () => {
         const text = await extractTextFromPDF(file);
         const parsedMedications = parseMedicationsFromText(text);
 
+        if (!profile?.id) {
+          toast({ title: "Error", description: "Profile not found. Please log in again.", variant: "destructive" });
+          return;
+        }
+
+        const { data: patientData, error: patientError } = await supabase
+            .from('patient_details')
+            .select('id')
+            .eq('profile_id', profile.id)
+            .single();
+
+        if (patientError) throw patientError;
+        if (!patientData) {
+            toast({ title: "Error", description: "Patient details not found.", variant: "destructive" });
+            return;
+        }
+
         if (parsedMedications.length > 0) {
-          const { error } = await supabase
+          // Clear existing medications before inserting new ones
+          await supabase.from('medications').delete().eq('patient_id', patientData.id);
+          
+          const { data, error } = await supabase
               .from('medications')
               .insert(parsedMedications.map(med => ({
                 ...med,
-                patient_id: profile?.id,
-              })));
+                patient_id: patientData.id,
+              })))
+              .select();
               
           if (error) throw error;
           
-          setMedications(parsedMedications.map(m => ({ ...m, id: Math.random() })) as MedicationRow[]); // Fallback ID for display
-
+          setMedications(data as MedicationRow[]);
           toast({
             title: "Success!",
             description: `Extracted ${parsedMedications.length} medications from your summary.`,
@@ -575,14 +627,28 @@ export const MedicationTab = () => {
 
     const removeFile = async () => {
       if (!profile?.id) return;
+      setIsProcessing(true);
       try {
-        await supabase.from('medications').delete().eq('patient_id', profile.id);
+        const { data: patientData, error: patientError } = await supabase
+            .from('patient_details')
+            .select('id')
+            .eq('profile_id', profile.id)
+            .single();
+
+        if (patientError) throw patientError;
+        if (!patientData) throw new Error("Patient details not found.");
+
+        const { error } = await supabase.from('medications').delete().eq('patient_id', patientData.id);
+        if (error) throw error;
+
         setUploadedFile(null);
         setMedications([]);
         toast({ title: "Medications Cleared", description: "All medications have been removed from your profile." });
       } catch (error) {
         console.error("Failed to remove medications:", error);
         toast({ title: "Error", description: "Could not remove medications. Please try again.", variant: "destructive" });
+      } finally {
+        setIsProcessing(false);
       }
     };
 
@@ -603,7 +669,7 @@ export const MedicationTab = () => {
             if (error) throw error;
             
             setMedications(prev => prev.map(med =>
-                med.id === medId ? { ...med, taken: updatedTaken } : med
+                med.id === medId ? { ...med, taken: updatedTaken as boolean[] } : med
             ));
             
             toast({ title: "Status Updated", description: "Your medication log has been updated." });
