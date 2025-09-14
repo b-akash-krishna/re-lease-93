@@ -1,4 +1,4 @@
-import React, { useRef, useState, useCallback } from "react";
+import React, { useRef, useState, useEffect, useCallback } from "react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -17,12 +17,15 @@ import {
   AlertCircle,
 } from "lucide-react";
 import * as pdfjsLib from 'pdfjs-dist';
+import { supabase } from "@/integrations/supabase/client";
+import { useAuth } from "@/hooks/useAuth";
+import { GeminiService } from "@/integrations/gemini";
 
 // Configure pdfjs-dist worker. Make sure 'pdf.worker.min.js' is in your public folder.
 pdfjsLib.GlobalWorkerOptions.workerSrc = '/pdf.worker.min.js';
 
 // --- TYPE DEFINITIONS ---
-interface Medication {
+export interface Medication {
   id: number;
   name: string;
   dosage: string;
@@ -36,50 +39,20 @@ interface ChatMessage {
   id: number;
   type: "bot" | "user";
   message: string;
+  isLoading?: boolean;
 }
 
 // --- INITIAL STATE & CONSTANTS ---
-const INITIAL_MEDICATIONS: Medication[] = [
-  {
-    id: 1,
-    name: "Amoxicillin",
-    dosage: "500mg",
-    frequency: "Three times daily",
-    timing: ["Take one tablet in the Morning", "Take one tablet at Noon", "Take one tablet in the Evening"],
-    taken: [true, true, false],
-    purpose: "Antibiotic for pneumonia treatment",
-  },
-  {
-    id: 2,
-    name: "Paracetamol",
-    dosage: "650mg",
-    frequency: "Every 6 hours as needed",
-    timing: ["6:00 AM", "12:00 PM", "6:00 PM", "12:00 AM"],
-    taken: [true, false, false, false],
-    purpose: "Pain relief and fever reduction",
-  },
-  {
-    id: 3,
-    name: "Inhaler (Salbutamol)",
-    dosage: "2 puffs",
-    frequency: "Four times daily",
-    timing: ["Morning dose", "Noon dose", "Evening dose", "Night dose"],
-    taken: [true, true, false, false],
-    purpose: "Bronchodilator for breathing support",
-  },
-];
-
 const INITIAL_CHAT_MESSAGES: ChatMessage[] = [
   {
     id: 1,
     type: "bot",
     message:
-      "Hello! I'm here to help you understand your medications. You can upload a discharge summary or ask me questions about the medicines listed.",
+      "Hello! I'm your AI medication assistant powered by Gemini. I can help you understand your medications, answer questions about side effects, interactions, and provide personalized guidance. How can I help you today?",
   },
 ];
 
-// --- PDF PROCESSING LOGIC ---
-
+// --- PDF PROCESSING LOGIC (unchanged) ---
 const extractTextFromPDF = async (file: File): Promise<string> => {
   const reader = new FileReader();
   return new Promise((resolve, reject) => {
@@ -194,8 +167,7 @@ const parseMedicationsFromText = (text: string): Medication[] => {
     return uniqueMedications;
 };
 
-// --- HELPER & CHILD COMPONENTS ---
-
+// --- HELPER & CHILD COMPONENTS (mostly unchanged) ---
 const formatFileSize = (bytes: number) => {
     if (bytes === 0) return "0 Bytes";
     const k = 1024;
@@ -263,9 +235,6 @@ const FileUploadCard: React.FC<{
   );
 };
 
-/**
- * UI Component for a single Medication Card (UPDATED)
- */
 const MedicationCard: React.FC<{
   med: Medication;
   onToggle: (medId: number, timeIndex: number) => void;
@@ -320,31 +289,48 @@ const MedicationCard: React.FC<{
 const MedicationList: React.FC<{
   medications: Medication[];
   onToggleMedication: (medId: number, timeIndex: number) => void;
-}> = ({ medications, onToggleMedication }) => (
-  <div className="space-y-6">
-    <h3 className="text-xl font-semibold text-gray-900">Your Medications</h3>
-    {medications.length > 0 ? (
-      medications.map((med) => (
-        <MedicationCard key={med.id} med={med} onToggle={onToggleMedication} />
-      ))
-    ) : (
-      <Card className="bg-white border-2 border-dashed border-gray-300 rounded-lg p-8 shadow-sm text-center">
-        <AlertCircle className="h-10 w-10 text-gray-400 mx-auto mb-4" />
-        <h4 className="font-semibold text-gray-800">No Medications Found</h4>
-        <p className="text-gray-500 mt-2">
-          Your medication list is empty. Upload a discharge summary to get started.
-        </p>
-      </Card>
-    )}
-  </div>
-);
+  isLoading: boolean;
+}> = ({ medications, onToggleMedication, isLoading }) => {
+  if (isLoading) {
+    return (
+        <Card className="bg-white border-2 border-dashed border-gray-300 rounded-lg p-8 shadow-sm text-center">
+          <Loader2 className="h-10 w-10 text-gray-400 mx-auto animate-spin" />
+          <h4 className="font-semibold text-gray-800 mt-4">Loading Medications...</h4>
+        </Card>
+    )
+  }
 
-const Chatbot: React.FC<{ medications: Medication[] }> = ({ medications }) => {
+  return (
+    <div className="space-y-6">
+      <h3 className="text-xl font-semibold text-gray-900">Your Medications</h3>
+      {medications.length > 0 ? (
+        medications.map((med) => (
+          <MedicationCard key={med.id} med={med} onToggle={onToggleMedication} />
+        ))
+      ) : (
+        <Card className="bg-white border-2 border-dashed border-gray-300 rounded-lg p-8 shadow-sm text-center">
+          <AlertCircle className="h-10 w-10 text-gray-400 mx-auto mb-4" />
+          <h4 className="font-semibold text-gray-800">No Medications Found</h4>
+          <p className="text-gray-500 mt-2">
+            Your medication list is empty. Upload a discharge summary to get started.
+          </p>
+        </Card>
+      )}
+    </div>
+  );
+}
+
+const Chatbot: React.FC<{ 
+  medications: Medication[]; 
+}> = ({ medications }) => {
   const [messages, setMessages] = useState<ChatMessage[]>(INITIAL_CHAT_MESSAGES);
   const [newMessage, setNewMessage] = useState("");
   const chatContainerRef = useRef<HTMLDivElement>(null);
+  
+  const GEMINI_API_KEY = import.meta.env.VITE_GEMINI_API_KEY;
+  const geminiService = GEMINI_API_KEY ? new GeminiService(GEMINI_API_KEY) : null;
 
-  const getBotResponse = useCallback((message: string): string => {
+  const getFallbackResponse = useCallback((message: string): string => {
     const lowerMessage = message.toLowerCase();
     
     for (const med of medications) {
@@ -358,140 +344,267 @@ const Chatbot: React.FC<{ medications: Medication[] }> = ({ medications }) => {
     } else if (lowerMessage.includes("when") || lowerMessage.includes("time")) {
       return "You can see the specific timings for each medication listed above. Sticking to this schedule is important for the best results.";
     } else if (lowerMessage.includes("hello") || lowerMessage.includes("hi")) {
-        return "Hello! How can I help you with your medications today?";
+      return "Hello! To enable advanced AI assistance, please configure your Gemini API key above. I can still help with basic medication questions!";
     } else {
       const medNames = medications.map(med => med.name).join(', ');
-      return `I can provide information about your prescribed medications: ${medNames}. Try asking "what is ${medications[0]?.name || 'Amoxicillin'} for?"`;
+      return `I can provide basic information about your medications: ${medNames}. For more detailed AI-powered assistance, please configure your Gemini API key.`;
     }
   }, [medications]);
 
-  const handleSendMessage = () => {
+  const handleSendMessage = async () => {
     if (!newMessage.trim()) return;
-    const userMessage: ChatMessage = { id: Date.now(), type: "user", message: newMessage };
-    const newMessages = [...messages, userMessage];
+
+    const userMessage: ChatMessage = { 
+      id: Date.now(), 
+      type: "user", 
+      message: newMessage 
+    };
+    
+    setMessages(prev => [...prev, userMessage]);
+    
+    const loadingMessage: ChatMessage = {
+      id: Date.now() + 1,
+      type: "bot",
+      message: "Thinking...",
+      isLoading: true
+    };
+    setMessages(prev => [...prev, loadingMessage]);
+    
+    const currentMessage = newMessage;
+    setNewMessage("");
+
+    try {
+      let botResponse: string;
+      
+      if (geminiService && GEMINI_API_KEY) {
+        botResponse = await geminiService.generateResponse(currentMessage, medications);
+      } else {
+        await new Promise(resolve => setTimeout(resolve, 800));
+        botResponse = getFallbackResponse(currentMessage);
+      }
+
+      setMessages(prev => 
+        prev.map(msg => 
+          msg.id === loadingMessage.id 
+            ? { ...msg, message: botResponse, isLoading: false }
+            : msg
+        )
+      );
+
+    } catch (error) {
+      console.error('Error getting bot response:', error);
+      const errorMessage = error instanceof Error ? error.message : 'An error occurred';
+      
+      setMessages(prev => 
+        prev.map(msg => 
+          msg.id === loadingMessage.id 
+            ? { 
+                ...msg, 
+                message: `I'm having trouble connecting to the AI service right now. ${errorMessage}. Here's what I can tell you: ${getFallbackResponse(currentMessage)}`,
+                isLoading: false 
+              }
+            : msg
+        )
+      );
+    }
 
     setTimeout(() => {
-      const botMessage: ChatMessage = { id: Date.now() + 1, type: "bot", message: getBotResponse(newMessage) };
-      setMessages(prev => [...prev, botMessage]);
-      chatContainerRef.current?.scrollTo({ top: chatContainerRef.current.scrollHeight, behavior: 'smooth' });
-    }, 800);
-    
-    setMessages(newMessages);
-    setNewMessage("");
+      chatContainerRef.current?.scrollTo({ 
+        top: chatContainerRef.current.scrollHeight, 
+        behavior: 'smooth' 
+      });
+    }, 100);
   };
-
+  
   return (
-    <Card className="bg-white border border-gray-200 rounded-lg p-6 shadow-sm">
+    <Card className="healthcare-card p-6">
       <div className="flex items-center space-x-3 mb-4">
-        <Bot className="h-6 w-6 text-blue-600" />
-        <h3 className="text-lg font-semibold text-gray-900">Medication Assistant</h3>
+        <Bot className="h-6 w-6 text-primary" />
+        <h3 className="text-lg font-semibold">
+          Medication Assistant
+          {geminiService && <Badge variant="secondary" className="ml-2 text-xs">Powered by Gemini</Badge>}
+        </h3>
       </div>
-      <div ref={chatContainerRef} className="space-y-4 mb-4 h-64 overflow-y-auto pr-2">
+      
+      {geminiService === null ? (
+        <div className="p-4 bg-yellow-50 border border-yellow-200 rounded-lg mb-4">
+          <div className="flex items-center space-x-2 mb-3">
+            <AlertCircle className="h-4 w-4 text-yellow-600" />
+            <h4 className="font-medium text-yellow-800">Gemini AI is not configured.</h4>
+          </div>
+          <p className="text-sm text-yellow-700">
+            Please add your Gemini API key to the .env file to enable AI assistance.
+          </p>
+        </div>
+      ) : null}
+      
+      <div ref={chatContainerRef} className="space-y-4 mb-4 max-h-64 overflow-y-auto">
         {messages.map((msg) => (
-          <div key={msg.id} className={`flex items-end gap-2 ${msg.type === "user" ? "justify-end" : "justify-start"}`}>
-            {msg.type === 'bot' && <div className="p-2 bg-gray-100 rounded-full h-8 w-8 flex-shrink-0"><Bot className="h-4 w-4 text-gray-600"/></div>}
-            <div className={`max-w-xs p-3 rounded-lg ${msg.type === "user" ? "bg-blue-600 text-white" : "bg-gray-100 text-gray-800"}`}>
+          <div
+            key={msg.id}
+            className={`flex ${msg.type === 'user' ? 'justify-end' : 'justify-start'}`}
+          >
+            <div
+              className={`max-w-xs p-3 rounded-lg ${
+                msg.type === 'user'
+                  ? 'bg-primary text-primary-foreground'
+                  : 'bg-muted text-muted-foreground'
+              }`}
+            >
               <p className="text-sm">{msg.message}</p>
             </div>
           </div>
         ))}
       </div>
+      
       <div className="flex space-x-2">
         <input
           type="text"
           value={newMessage}
           onChange={(e) => setNewMessage(e.target.value)}
           placeholder="Ask about your medications..."
-          className="flex-1 px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-          onKeyPress={(e) => e.key === "Enter" && handleSendMessage()}
+          className="flex-1 px-3 py-2 border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary"
+          onKeyPress={(e) => e.key === 'Enter' && handleSendMessage()}
         />
-        <Button onClick={handleSendMessage}><MessageCircle className="h-4 w-4" /></Button>
+        <Button onClick={handleSendMessage} size="sm">
+          <MessageCircle className="h-4 w-4" />
+        </Button>
       </div>
     </Card>
   );
-};
+}
 
-// --- MAIN COMPONENT ---
 export const MedicationTab = () => {
-  const { toast } = useToast();
-  const [medications, setMedications] = useState<Medication[]>(INITIAL_MEDICATIONS);
-  const [uploadedFile, setUploadedFile] = useState<File | null>(null);
-  const [isProcessing, setIsProcessing] = useState(false);
-
-  const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-
-    if (file.type !== "application/pdf" || !file.name.toLowerCase().endsWith(".pdf")) {
-      toast({ title: "Invalid File Type", description: "Please upload a valid PDF file.", variant: "destructive" });
-      return;
-    }
-    if (file.size > 10 * 1024 * 1024) { // 10MB limit
-      toast({ title: "File Too Large", description: "Please upload a file smaller than 10MB.", variant: "destructive" });
-      return;
-    }
+    const { toast } = useToast();
+    const [medications, setMedications] = useState<Medication[]>([]);
+    const [uploadedFile, setUploadedFile] = useState<File | null>(null);
+    const [isProcessing, setIsProcessing] = useState(false);
+    const [isLoading, setIsLoading] = useState(true);
+    const { profile } = useAuth();
     
-    setUploadedFile(file);
-    setIsProcessing(true);
-    
-    try {
-      const text = await extractTextFromPDF(file);
-      const extractedMedications = parseMedicationsFromText(text);
+    // Fetch medications from the database on component mount
+    useEffect(() => {
+        const fetchMedications = async () => {
+            if (!profile?.id) return;
+            // NOTE: This assumes a 'medications' table exists and is linked to the patient profile.
+            // A more robust schema might be needed for a full implementation.
+            try {
+                // Here we simulate fetching the initial medications from the `medical_history`
+                // table. In a real-world scenario, you might have a dedicated `medications` table
+                // for the patient's current active meds.
+                const { data, error } = await supabase
+                    .from('medical_history')
+                    .select('medications_prescribed')
+                    .eq('patient_id', profile.id)
+                    .order('created_at', { ascending: false })
+                    .limit(1)
+                    .single();
 
-      if (extractedMedications.length > 0) {
-        setMedications(extractedMedications);
-        toast({
-          title: "Success!",
-          description: `Extracted ${extractedMedications.length} medications from your summary.`,
-        });
-      } else {
-        setMedications([]);
-        toast({
-          title: "No Medications Found",
-          description: "Could not automatically detect medications. Please check the PDF.",
-          variant: "destructive",
-        });
+                if (error && error.code !== 'PGRST116') {
+                    throw error;
+                }
+                
+                if (data && data.medications_prescribed) {
+                    const medicationsList = data.medications_prescribed.map((medication, index) => ({
+                        id: index + 1,
+                        name: medication,
+                        dosage: '', // Assuming this is not in the array
+                        frequency: '', // Assuming this is not in the array
+                        timing: [], // Assuming this is not in the array
+                        taken: [], // Assuming this is not in the array
+                        purpose: 'As prescribed', // Placeholder
+                    }));
+                    setMedications(medicationsList);
+                }
+            } catch (error) {
+                console.error("Failed to fetch medications:", error);
+                toast({
+                    title: "Error",
+                    description: "Could not load medications. Please try again later.",
+                    variant: "destructive",
+                });
+            } finally {
+                setIsLoading(false);
+            }
+        };
+
+        fetchMedications();
+    }, [profile?.id, toast]);
+    
+    const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+      const file = e.target.files?.[0];
+      if (!file) return;
+
+      if (file.type !== "application/pdf" || !file.name.toLowerCase().endsWith(".pdf")) {
+        toast({ title: "Invalid File Type", description: "Please upload a valid PDF file.", variant: "destructive" });
+        return;
       }
-    } catch (error: any) {
-      console.error("PDF processing failed:", error);
-      toast({ title: "Processing Failed", description: error.message || "An unknown error occurred.", variant: "destructive" });
-    } finally {
-      setIsProcessing(false);
-    }
-  };
+      if (file.size > 10 * 1024 * 1024) { // 10MB limit
+        toast({ title: "File Too Large", description: "Please upload a file smaller than 10MB.", variant: "destructive" });
+        return;
+      }
+      
+      setUploadedFile(file);
+      setIsProcessing(true);
+      
+      try {
+        const text = await extractTextFromPDF(file);
+        const extractedMedications = parseMedicationsFromText(text);
 
-  const removeFile = () => {
-    setUploadedFile(null);
-    setMedications(INITIAL_MEDICATIONS);
-    toast({ title: "File Removed", description: "Medication list has been reset." });
-  };
+        if (extractedMedications.length > 0) {
+          setMedications(extractedMedications);
+          toast({
+            title: "Success!",
+            description: `Extracted ${extractedMedications.length} medications from your summary.`,
+          });
+          // TODO: Save to database
+        } else {
+          setMedications([]);
+          toast({
+            title: "No Medications Found",
+            description: "Could not automatically detect medications. Please check the PDF.",
+            variant: "destructive",
+          });
+        }
+      } catch (error: any) {
+        console.error("PDF processing failed:", error);
+        toast({ title: "Processing Failed", description: error.message || "An unknown error occurred.", variant: "destructive" });
+      } finally {
+        setIsProcessing(false);
+      }
+    };
 
+    const removeFile = () => {
+      setUploadedFile(null);
+      setMedications([]); // Reset to empty array instead of static data
+      toast({ title: "File Removed", description: "Medication list has been reset." });
+    };
 
+    const toggleMedication = (medId: number, timeIndex: number) => {
+      setMedications(prev =>
+        prev.map(med =>
+          med.id === medId
+            ? { ...med, taken: med.taken.map((t, i) => (i === timeIndex ? !t : t)) }
+            : med
+        )
+      );
+      toast({ title: "Status Updated", description: "Your medication log has been updated." });
+    };
 
-  const toggleMedication = (medId: number, timeIndex: number) => {
-    setMedications(prev =>
-      prev.map(med =>
-        med.id === medId
-          ? { ...med, taken: med.taken.map((t, i) => (i === timeIndex ? !t : t)) }
-          : med
-      )
+    return (
+      <div className="space-y-8 fade-in">
+        <FileUploadCard
+          onFileChange={handleFileChange}
+          onRemoveFile={removeFile}
+          uploadedFile={uploadedFile}
+          isProcessing={isProcessing}
+        />
+        <MedicationList
+          medications={medications}
+          onToggleMedication={toggleMedication}
+          isLoading={isLoading}
+        />
+        <Chatbot medications={medications} />
+      </div>
     );
-    toast({ title: "Status Updated", description: "Your medication log has been updated." });
   };
-
-  return (
-    <div className="space-y-8 fade-in">
-      <FileUploadCard
-        onFileChange={handleFileChange}
-        onRemoveFile={removeFile}
-        uploadedFile={uploadedFile}
-        isProcessing={isProcessing}
-      />
-      <MedicationList
-        medications={medications}
-        onToggleMedication={toggleMedication}
-      />
-      <Chatbot medications={medications} />
-    </div>
-  );
-};
