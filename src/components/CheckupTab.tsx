@@ -143,10 +143,6 @@ export const CheckupTab = ({ patient }: CheckupTabProps) => {
   const { toast } = useToast();
   const { profile } = useAuth();
   
-  // New: Fetches questions from Gemini API to be dynamic
-  // This is a placeholder for a future task
-  // const [dynamicQuestions, setDynamicQuestions] = useState<any[]>(QUESTIONS);
-  
   const handleAnswer = (questionKey: keyof CheckupQuestions, answer: boolean) => {
     setCurrentCheckup(prev => ({ ...prev, [questionKey]: answer }));
   };
@@ -176,41 +172,59 @@ export const CheckupTab = ({ patient }: CheckupTabProps) => {
         return;
       }
       
-      // Step 2: Get the patient's ID
-      // FIX: Changed 'profile_id' to 'user_id' based on common Supabase schema conventions
+      // Step 2: Get the patient's ID and emergency contact email
+      console.log("Fetching patient details for profile ID:", profile.id);
+      
       const { data: patientData, error: patientError } = await supabase
         .from('patient_details')
-        .select('id, emergency_contact_email')
-        .eq('profile_id', profile.id) // FIX: Changed 'user_id' to 'profile_id' to match your schema
+        .select('id, emergency_contact_email, first_name, last_name')
+        .eq('profile_id', profile.id)
         .single();
       
-      if (patientError || !patientData) {
-        throw new Error("Patient details not found.");
+      console.log("Patient data response:", { patientData, patientError });
+      
+      if (patientError) {
+        if (patientError.code === 'PGRST116') {
+          // No patient details found
+          throw new Error("Please complete your patient details first before submitting a checkup.");
+        }
+        throw new Error(`Database error: ${patientError.message}`);
+      }
+      
+      if (!patientData) {
+        throw new Error("Patient details not found. Please complete your profile first.");
       }
       
       const patientId = patientData.id;
       const emergencyEmail = patientData.emergency_contact_email;
+      const patientName = `${patientData.first_name} ${patientData.last_name}`;
       
-      // Step 3: Insert the checkup responses into the new `checkup_responses` table
-      // Note: You will need to create this table in your Supabase project.
+      console.log("Found patient:", { patientId, emergencyEmail, patientName });
+      
+      // Step 3: Insert the checkup responses into the checkup_responses table
       const checkupPayload = {
         patient_id: patientId,
         checkup_date: new Date().toISOString(),
         responses: currentCheckup,
-        risk_score: 0, // Placeholder, to be updated later by the prediction model
-        prediction_result: null, // Placeholder, to be updated later by the prediction model
-        triggered_alert: false, // Placeholder, to be updated by our logic
+        risk_score: 0, // Will be updated below
+        prediction_result: null, // Placeholder for future ML integration
+        triggered_alert: false, // Will be updated below
       };
       
-      const { data, error } = await supabase
+      console.log("Inserting checkup payload:", checkupPayload);
+      
+      const { data: checkupData, error: insertError } = await supabase
         .from('checkup_responses')
         .insert(checkupPayload)
         .select('*')
         .single();
         
-      if (error) {
-        throw error;
+      if (insertError) {
+        console.error("Insert error:", insertError);
+        throw new Error(`Failed to save checkup: ${insertError.message}`);
       }
+      
+      console.log("Checkup inserted successfully:", checkupData);
       
       // Step 4: Calculate risk based on answers and update the database
       const negativeSymptoms = [
@@ -241,24 +255,25 @@ export const CheckupTab = ({ patient }: CheckupTabProps) => {
         message = "⚠️ Your recovery is progressing, but please monitor symptoms closely.";
       }
       
-      // This is a placeholder for the a prediction API call (future task)
-      // await callPredictionAPI(checkupPayload);
-      
       // Step 5: Update the database with the risk score and triggered alert status
       const { error: updateError } = await supabase
         .from('checkup_responses')
-        .update({ risk_score: negativeSymptoms, triggered_alert: triggeredAlert })
-        .eq('id', data.id);
+        .update({ 
+          risk_score: negativeSymptoms, 
+          triggered_alert: triggeredAlert 
+        })
+        .eq('id', checkupData.id);
         
       if (updateError) {
-        throw updateError;
+        console.error("Update error:", updateError);
+        throw new Error(`Failed to update risk assessment: ${updateError.message}`);
       }
       
-      // Step 6: Trigger alert if necessary (e.g., send email)
+      // Step 6: Log alert information (placeholder for actual alert system)
       if (triggeredAlert && emergencyEmail) {
-        // You'll need to set up a Supabase Edge Function or a backend service for this
-        // For now, this is a placeholder to show the intent.
-        console.log(`EMERGENCY ALERT: Patient ${patient.name} has a high risk score. Email alert sent to ${emergencyEmail}.`);
+        console.log(`ALERT: Patient ${patientName} (ID: ${patientId}) has a high risk score.`);
+        console.log(`Emergency contact email: ${emergencyEmail}`);
+        // TODO: Implement actual email notification system
       }
       
       // Step 7: Show a success toast
@@ -295,21 +310,21 @@ export const CheckupTab = ({ patient }: CheckupTabProps) => {
 
   const getStatusColor = (status: string) => {
     switch (status) {
-      case "completed": return "text-success";
-      case "due": return "text-warning";
-      case "scheduled": return "text-muted-foreground";
-      default: return "text-muted-foreground";
+      case "completed": return "text-green-600";
+      case "due": return "text-yellow-600";
+      case "scheduled": return "text-gray-500";
+      default: return "text-gray-500";
     }
   };
 
   const getStatusIcon = (status: string) => {
-  switch (status) {
-    case "completed": return CheckCircle;
-    case "due": return AlertCircle;
-    case "scheduled": return Clock;
-    default: return Clock;
-  }
-};
+    switch (status) {
+      case "completed": return CheckCircle;
+      case "due": return AlertCircle;
+      case "scheduled": return Clock;
+      default: return Clock;
+    }
+  };
 
   return (
     <div className="space-y-6 fade-in">
@@ -335,9 +350,9 @@ export const CheckupTab = ({ patient }: CheckupTabProps) => {
                   <Badge 
                     variant={checkup.status === "completed" ? "default" : "outline"}
                     className={
-                      checkup.status === "completed" ? "bg-success/10 text-success" :
-                      checkup.status === "due" ? "bg-warning/10 text-warning" :
-                      "bg-muted/10 text-muted-foreground"
+                      checkup.status === "completed" ? "bg-green-100 text-green-800 border-green-300" :
+                      checkup.status === "due" ? "bg-yellow-100 text-yellow-800 border-yellow-300" :
+                      "bg-gray-100 text-gray-600 border-gray-300"
                     }
                   >
                     {checkup.status.charAt(0).toUpperCase() + checkup.status.slice(1)}
@@ -376,7 +391,7 @@ export const CheckupTab = ({ patient }: CheckupTabProps) => {
                       variant={currentCheckup[q.key] === false ? "default" : "outline"}
                       size="sm"
                       onClick={() => handleAnswer(q.key, false)}
-                      className={currentCheckup[q.key] === false ? "bg-success hover:bg-success/90 text-success-foreground" : ""}
+                      className={currentCheckup[q.key] === false ? "bg-green-600 hover:bg-green-700 text-white" : ""}
                     >
                       No
                     </Button>
@@ -417,22 +432,4 @@ export const CheckupTab = ({ patient }: CheckupTabProps) => {
       </Card>
     </div>
   );
-};
-
-const getStatusColor = (status: string) => {
-  switch (status) {
-    case "completed": return "text-success";
-    case "due": return "text-warning";
-    case "scheduled": return "text-muted-foreground";
-    default: return "text-muted-foreground";
-  }
-};
-
-const getStatusIcon = (status: string) => {
-  switch (status) {
-    case "completed": return CheckCircle;
-    case "due": return AlertCircle;
-    case "scheduled": return Clock;
-    default: return Clock;
-  }
 };
