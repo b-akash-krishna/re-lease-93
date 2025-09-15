@@ -5,7 +5,7 @@ import { useToast } from "@/components/ui/use-toast";
 import { Loader2, ArrowRight, AlertCircle, CheckCircle } from "lucide-react";
 import { useAuth } from "@/hooks/useAuth";
 import { supabase } from "@/integrations/supabase/client";
-import { HospitalDataForm } from "./HospitalDataForm"; // You'll need to create this component
+import { HospitalDataForm } from "./HospitalDataForm";
 
 // --- TYPE DEFINITIONS ---
 interface Patient {
@@ -61,28 +61,62 @@ export const PredictionTab = ({ patient, onPredictionResult }: PredictionTabProp
   const [prediction, setPrediction] = useState<PredictionResponse | null>(null);
   const [hospitalData, setHospitalData] = useState<HospitalData | null>(null);
   const [showDataForm, setShowDataForm] = useState(true);
+  const [isTableReady, setIsTableReady] = useState(false);
 
-  // Check if we have saved hospital data
+  // Check if the table exists and user is authenticated
   useEffect(() => {
-    loadSavedHospitalData();
+    if (profile?.id) {
+      checkTableAndLoadData();
+    }
   }, [profile]);
 
-  const loadSavedHospitalData = async () => {
+  const checkTableAndLoadData = async () => {
     if (!profile?.id) return;
 
     try {
+      console.log("Checking hospital_data table and loading data for profile:", profile.id);
+      
+      // First, check if the table exists by trying a simple query
       const { data, error } = await supabase
-        .from('hospital_data') // You'll need to create this table
+        .from('hospital_data')
         .select('*')
         .eq('profile_id', profile.id)
-        .single();
+        .maybeSingle(); // Use maybeSingle() instead of single() to handle no results gracefully
 
-      if (!error && data) {
+      console.log("Database query result:", { data, error });
+
+      if (error) {
+        console.error("Database error:", error);
+        if (error.code === 'PGRST106') {
+          // Table doesn't exist
+          toast({
+            title: "Database Setup Required",
+            description: "Please run the database migration first. Check the console for instructions.",
+            variant: "destructive",
+          });
+          return;
+        }
+        throw error;
+      }
+
+      setIsTableReady(true);
+
+      if (data) {
         setHospitalData(data);
         setShowDataForm(false);
+        console.log("Loaded existing hospital data:", data);
+      } else {
+        console.log("No hospital data found - showing form");
+        setShowDataForm(true);
       }
-    } catch (error) {
-      console.log("No saved hospital data found - showing form");
+      
+    } catch (error: any) {
+      console.error("Failed to load hospital data:", error);
+      toast({
+        title: "Database Error",
+        description: error.message || "Could not load hospital data. Please check the database setup.",
+        variant: "destructive",
+      });
     }
   };
 
@@ -96,16 +130,57 @@ export const PredictionTab = ({ patient, onPredictionResult }: PredictionTabProp
       return;
     }
 
+    if (!isTableReady) {
+      toast({
+        title: "Database Not Ready",
+        description: "Please ensure the database tables are created first.",
+        variant: "destructive",
+      });
+      return;
+    }
+
     try {
-      const { error } = await supabase
+      console.log("Saving hospital data:", { profile_id: profile.id, ...data });
+
+      // Try a simple insert first, then update if conflict occurs
+      const { data: insertedData, error: insertError } = await supabase
         .from('hospital_data')
-        .upsert({
+        .insert({
           profile_id: profile.id,
           ...data,
+          created_at: new Date().toISOString(),
           updated_at: new Date().toISOString()
-        });
+        })
+        .select()
+        .single();
 
-      if (error) throw error;
+      if (insertError) {
+        // If insert failed due to conflict, try update instead
+        if (insertError.code === '23505') { // Unique constraint violation
+          console.log("Record exists, trying update...");
+          const { data: updatedData, error: updateError } = await supabase
+            .from('hospital_data')
+            .update({
+              ...data,
+              updated_at: new Date().toISOString()
+            })
+            .eq('profile_id', profile.id)
+            .select()
+            .single();
+
+          if (updateError) {
+            console.error("Update error:", updateError);
+            throw updateError;
+          }
+          
+          console.log("Data updated successfully:", updatedData);
+        } else {
+          console.error("Insert error:", insertError);
+          throw insertError;
+        }
+      } else {
+        console.log("Data inserted successfully:", insertedData);
+      }
 
       setHospitalData(data);
       setShowDataForm(false);
@@ -155,8 +230,10 @@ export const PredictionTab = ({ patient, onPredictionResult }: PredictionTabProp
       setPrediction(data);
       onPredictionResult(data.prediction);
 
-      // Save prediction to database
-      await savePredictionResult(data);
+      // Save prediction to database (only if table is ready)
+      if (isTableReady) {
+        await savePredictionResult(data);
+      }
 
       toast({
         title: "Prediction Complete",
@@ -179,7 +256,7 @@ export const PredictionTab = ({ patient, onPredictionResult }: PredictionTabProp
   };
 
   const savePredictionResult = async (predictionData: PredictionResponse) => {
-    if (!profile?.id) return;
+    if (!profile?.id || !isTableReady) return;
 
     try {
       const { error } = await supabase
@@ -193,10 +270,14 @@ export const PredictionTab = ({ patient, onPredictionResult }: PredictionTabProp
           created_at: new Date().toISOString()
         });
 
-      if (error) throw error;
+      if (error) {
+        console.error("Could not save prediction result:", error);
+        // Don't show error to user as this is not critical
+      } else {
+        console.log("Prediction result saved successfully");
+      }
     } catch (error) {
       console.error("Could not save prediction result:", error);
-      // Don't show error to user as this is not critical
     }
   };
 
@@ -204,6 +285,38 @@ export const PredictionTab = ({ patient, onPredictionResult }: PredictionTabProp
     setShowDataForm(true);
     setPrediction(null);
   };
+
+  // Show database setup message if not ready
+  if (!isTableReady && profile?.id) {
+    return (
+      <div className="space-y-6 fade-in">
+        <Card className="healthcare-card p-6 text-center">
+          <AlertCircle className="h-12 w-12 text-yellow-500 mx-auto mb-4" />
+          <h3 className="text-lg font-semibold mb-2">Database Setup Required</h3>
+          <p className="text-muted-foreground mb-4">
+            The required database tables haven't been created yet. Please run the migration in your Supabase dashboard.
+          </p>
+          <div className="text-left bg-muted p-4 rounded-lg text-sm">
+            <p className="font-medium mb-2">Steps to fix:</p>
+            <ol className="list-decimal list-inside space-y-1">
+              <li>Go to your Supabase project dashboard</li>
+              <li>Navigate to the SQL Editor</li>
+              <li>Copy and paste the migration SQL provided in the console</li>
+              <li>Run the migration</li>
+              <li>Refresh this page</li>
+            </ol>
+          </div>
+          <Button 
+            onClick={checkTableAndLoadData}
+            className="mt-4"
+            variant="outline"
+          >
+            Check Again
+          </Button>
+        </Card>
+      </div>
+    );
+  }
 
   if (showDataForm) {
     return (
@@ -262,7 +375,7 @@ export const PredictionTab = ({ patient, onPredictionResult }: PredictionTabProp
             </div>
             <div>
               <p className="text-muted-foreground">A1C Result</p>
-              <p className="font-medium capitalize">{hospitalData.a1c_test}</p>
+              <p className="font-medium capitalize">{hospitalData.a1c_test.replace('_', ' ')}</p>
             </div>
           </div>
         )}

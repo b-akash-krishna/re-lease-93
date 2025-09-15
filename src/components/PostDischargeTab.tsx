@@ -99,7 +99,7 @@ export const PostDischargeTab = ({
   const [hasGeneratedContent, setHasGeneratedContent] = useState(false);
   const chatContainerRef = useRef<HTMLDivElement>(null);
   
-  const GEMINI_API_KEY = import.meta.env.VITE_GEMINI_API_KEY_3;
+  const GEMINI_API_KEY = import.meta.env.VITE_GEMINI_API_KEY;
   const geminiService = GEMINI_API_KEY ? new GeminiService(GEMINI_API_KEY) : null;
 
   useEffect(() => {

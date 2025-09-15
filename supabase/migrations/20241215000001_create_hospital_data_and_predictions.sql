@@ -1,11 +1,15 @@
 -- Migration: Create hospital_data and prediction_results tables
--- Created: 2024-12-15
--- Description: Add tables for storing hospital administrative data and ML prediction results
+-- Fixed version with proper constraints and data types
+-- Run this in your Supabase SQL Editor
 
--- Table to store hospital administrative data for each patient
-CREATE TABLE IF NOT EXISTS public.hospital_data (
+-- First, drop existing tables if they exist (to start fresh)
+DROP TABLE IF EXISTS public.prediction_results;
+DROP TABLE IF EXISTS public.hospital_data;
+
+-- Create hospital_data table
+CREATE TABLE public.hospital_data (
     id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
-    profile_id UUID REFERENCES auth.users(id) ON DELETE CASCADE NOT NULL,
+    profile_id UUID NOT NULL,
     
     -- Patient Demographics
     age INTEGER NOT NULL CHECK (age >= 0 AND age <= 150),
@@ -34,10 +38,10 @@ CREATE TABLE IF NOT EXISTS public.hospital_data (
     CONSTRAINT unique_hospital_data_per_user UNIQUE (profile_id)
 );
 
--- Table to store ML prediction results
-CREATE TABLE IF NOT EXISTS public.prediction_results (
+-- Create prediction_results table
+CREATE TABLE public.prediction_results (
     id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
-    profile_id UUID REFERENCES auth.users(id) ON DELETE CASCADE NOT NULL,
+    profile_id UUID NOT NULL,
     
     -- Prediction data
     prediction TEXT NOT NULL CHECK (prediction IN ('Yes', 'No')),
@@ -55,12 +59,12 @@ CREATE TABLE IF NOT EXISTS public.prediction_results (
 );
 
 -- Create indexes for better performance
-CREATE INDEX IF NOT EXISTS idx_hospital_data_profile_id ON public.hospital_data(profile_id);
-CREATE INDEX IF NOT EXISTS idx_hospital_data_updated_at ON public.hospital_data(updated_at);
+CREATE INDEX idx_hospital_data_profile_id ON public.hospital_data(profile_id);
+CREATE INDEX idx_hospital_data_updated_at ON public.hospital_data(updated_at);
 
-CREATE INDEX IF NOT EXISTS idx_prediction_results_profile_id ON public.prediction_results(profile_id);
-CREATE INDEX IF NOT EXISTS idx_prediction_results_created_at ON public.prediction_results(created_at DESC);
-CREATE INDEX IF NOT EXISTS idx_prediction_results_prediction ON public.prediction_results(prediction);
+CREATE INDEX idx_prediction_results_profile_id ON public.prediction_results(profile_id);
+CREATE INDEX idx_prediction_results_created_at ON public.prediction_results(created_at DESC);
+CREATE INDEX idx_prediction_results_prediction ON public.prediction_results(prediction);
 
 -- Create function to automatically update the updated_at timestamp
 CREATE OR REPLACE FUNCTION public.update_updated_at_column()
@@ -72,7 +76,6 @@ END;
 $$ LANGUAGE plpgsql;
 
 -- Create trigger for hospital_data table
-DROP TRIGGER IF EXISTS update_hospital_data_updated_at ON public.hospital_data;
 CREATE TRIGGER update_hospital_data_updated_at
     BEFORE UPDATE ON public.hospital_data
     FOR EACH ROW
@@ -109,43 +112,21 @@ CREATE POLICY "Users can insert their own prediction results"
     ON public.prediction_results FOR INSERT 
     WITH CHECK (auth.uid() = profile_id);
 
--- Optional: Healthcare providers can view all data (uncomment if needed)
--- CREATE POLICY "Healthcare providers can view all hospital data" 
---     ON public.hospital_data FOR SELECT 
---     USING (
---         EXISTS (
---             SELECT 1 FROM public.profiles 
---             WHERE profiles.id = auth.uid() 
---             AND profiles.role = 'healthcare_provider'
---         )
---     );
-
--- CREATE POLICY "Healthcare providers can view all prediction results" 
---     ON public.prediction_results FOR SELECT 
---     USING (
---         EXISTS (
---             SELECT 1 FROM public.profiles 
---             WHERE profiles.id = auth.uid() 
---             AND profiles.role = 'healthcare_provider'
---         )
---     );
-
 -- Grant necessary permissions
 GRANT USAGE ON SCHEMA public TO anon, authenticated;
 GRANT ALL ON public.hospital_data TO authenticated;
 GRANT ALL ON public.prediction_results TO authenticated;
-GRANT SELECT ON public.hospital_data TO anon;
-GRANT SELECT ON public.prediction_results TO anon;
 
 -- Add helpful comments
 COMMENT ON TABLE public.hospital_data IS 'Stores hospital administrative data used for readmission predictions';
 COMMENT ON TABLE public.prediction_results IS 'Stores ML model prediction results with timestamps';
-COMMENT ON COLUMN public.hospital_data.profile_id IS 'References the authenticated user';
-COMMENT ON COLUMN public.hospital_data.age IS 'Patient age in years (0-150)';
-COMMENT ON COLUMN public.hospital_data.length_of_stay IS 'Length of hospital stay in days';
-COMMENT ON COLUMN public.hospital_data.diabetes_medication IS 'Whether patient is on diabetes medication (yes/no)';
-COMMENT ON COLUMN public.hospital_data.glucose_test IS 'Glucose test result (normal/high/not_done)';
-COMMENT ON COLUMN public.hospital_data.a1c_test IS 'A1C test result (normal/high/not_done)';
-COMMENT ON COLUMN public.prediction_results.prediction IS 'Readmission prediction result (Yes/No)';
-COMMENT ON COLUMN public.prediction_results.risk_factors IS 'JSON object containing risk factor analysis';
-COMMENT ON COLUMN public.prediction_results.hospital_data_id IS 'References the hospital_data record used for this prediction';
+
+-- Test the tables by inserting a sample record (optional)
+-- You can uncomment this to test:
+/*
+INSERT INTO public.hospital_data (
+    profile_id, age, length_of_stay, diabetes_medication, glucose_test, a1c_test
+) VALUES (
+    auth.uid(), 65, 3, 'no', 'normal', 'not_done'
+);
+*/

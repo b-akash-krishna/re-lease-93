@@ -5,7 +5,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Separator } from '@/components/ui/separator';
-import { Hospital, Activity, Pill, TestTube } from 'lucide-react';
+import { Hospital, Activity, Pill, TestTube, AlertCircle } from 'lucide-react';
 
 interface HospitalData {
   age: number;
@@ -39,10 +39,12 @@ export const HospitalDataForm: React.FC<HospitalDataFormProps> = ({
     outpatient_visits: initialData?.outpatient_visits?.toString() || '0',
     previous_inpatient_stays: initialData?.previous_inpatient_stays?.toString() || '0',
     emergency_visits: initialData?.emergency_visits?.toString() || '0',
-    diabetes_medication: initialData?.diabetes_medication || 'no',
-    glucose_test: initialData?.glucose_test || 'not_done',
-    a1c_test: initialData?.a1c_test || 'not_done',
+    diabetes_medication: initialData?.diabetes_medication || '',
+    glucose_test: initialData?.glucose_test || '',
+    a1c_test: initialData?.a1c_test || '',
   });
+
+  const [errors, setErrors] = useState<Record<string, string>>({});
 
   useEffect(() => {
     if (initialData) {
@@ -55,26 +57,84 @@ export const HospitalDataForm: React.FC<HospitalDataFormProps> = ({
         outpatient_visits: initialData.outpatient_visits?.toString() || '0',
         previous_inpatient_stays: initialData.previous_inpatient_stays?.toString() || '0',
         emergency_visits: initialData.emergency_visits?.toString() || '0',
-        diabetes_medication: initialData.diabetes_medication || 'no',
-        glucose_test: initialData.glucose_test || 'not_done',
-        a1c_test: initialData.a1c_test || 'not_done',
+        diabetes_medication: initialData.diabetes_medication || '',
+        glucose_test: initialData.glucose_test || '',
+        a1c_test: initialData.a1c_test || '',
       });
     }
   }, [initialData]);
 
   const handleInputChange = (field: keyof typeof formData, value: string) => {
     setFormData(prev => ({ ...prev, [field]: value }));
+    
+    // Clear error when user starts typing
+    if (errors[field]) {
+      setErrors(prev => ({ ...prev, [field]: '' }));
+    }
+  };
+
+  const validateForm = () => {
+    const newErrors: Record<string, string> = {};
+
+    // Required fields validation
+    if (!formData.age.trim()) {
+      newErrors.age = 'Age is required';
+    } else {
+      const ageNum = parseInt(formData.age, 10);
+      if (isNaN(ageNum) || ageNum < 0 || ageNum > 150) {
+        newErrors.age = 'Age must be between 0 and 150';
+      }
+    }
+
+    if (!formData.diabetes_medication.trim()) {
+      newErrors.diabetes_medication = 'Diabetes medication status is required';
+    }
+
+    if (!formData.glucose_test.trim()) {
+      newErrors.glucose_test = 'Glucose test result is required';
+    }
+
+    if (!formData.a1c_test.trim()) {
+      newErrors.a1c_test = 'A1C test result is required';
+    }
+
+    // Validate numeric fields are non-negative
+    const numericFields = [
+      'length_of_stay',
+      'num_lab_procedures', 
+      'num_other_procedures',
+      'num_medications',
+      'outpatient_visits',
+      'previous_inpatient_stays',
+      'emergency_visits'
+    ];
+
+    numericFields.forEach(field => {
+      const value = parseInt(formData[field as keyof typeof formData], 10);
+      if (isNaN(value) || value < 0) {
+        newErrors[field] = `${field.replace(/_/g, ' ')} must be a non-negative number`;
+      }
+    });
+
+    setErrors(newErrors);
+    return Object.keys(newErrors).length === 0;
   };
 
   const isFormValid = () => {
     return formData.age.trim() !== '' &&
            formData.diabetes_medication.trim() !== '' &&
            formData.glucose_test.trim() !== '' &&
-           formData.a1c_test.trim() !== '';
+           formData.a1c_test.trim() !== '' &&
+           Object.keys(errors).length === 0;
   };
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
+    
+    if (!validateForm()) {
+      return;
+    }
+
     const data: HospitalData = {
       age: parseInt(formData.age, 10),
       length_of_stay: parseInt(formData.length_of_stay, 10),
@@ -91,9 +151,56 @@ export const HospitalDataForm: React.FC<HospitalDataFormProps> = ({
     onDataSubmit(data);
   };
 
+  const renderField = (
+    id: keyof typeof formData,
+    label: string,
+    type: 'number' | 'select' = 'number',
+    options?: { value: string; label: string }[],
+    required = false,
+    placeholder = ''
+  ) => (
+    <div className="space-y-2">
+      <Label htmlFor={id}>
+        {label} {required && <span className="text-red-500">*</span>}
+      </Label>
+      {type === 'number' ? (
+        <Input
+          id={id}
+          type="number"
+          placeholder={placeholder}
+          value={formData[id]}
+          onChange={(e) => handleInputChange(id, e.target.value)}
+          className={errors[id] ? 'border-red-500' : ''}
+        />
+      ) : (
+        <Select 
+          value={formData[id]} 
+          onValueChange={(value) => handleInputChange(id, value)}
+        >
+          <SelectTrigger className={errors[id] ? 'border-red-500' : ''}>
+            <SelectValue placeholder={`Select ${label.toLowerCase()}`} />
+          </SelectTrigger>
+          <SelectContent>
+            {options?.map(option => (
+              <SelectItem key={option.value} value={option.value}>
+                {option.label}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      )}
+      {errors[id] && (
+        <div className="flex items-center space-x-1 text-red-500 text-sm">
+          <AlertCircle className="h-4 w-4" />
+          <span>{errors[id]}</span>
+        </div>
+      )}
+    </div>
+  );
+
   return (
     <Card className="healthcare-card p-6">
-      <div className="space-y-6">
+      <form onSubmit={handleSubmit} className="space-y-6">
         <div>
           <h3 className="healthcare-heading flex items-center space-x-2">
             <Hospital className="h-5 w-5 text-primary" />
@@ -105,154 +212,66 @@ export const HospitalDataForm: React.FC<HospitalDataFormProps> = ({
         </div>
 
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          <div className="space-y-2">
-            <Label htmlFor="age">Patient Age *</Label>
-            <Input
-              id="age"
-              type="number"
-              placeholder="Enter age"
-              value={formData.age}
-              onChange={(e) => handleInputChange('age', e.target.value)}
-              required
-            />
-          </div>
-          <div className="space-y-2">
-            <Label htmlFor="length_of_stay">Length of Stay (days)</Label>
-            <Input
-              id="length_of_stay"
-              type="number"
-              placeholder="Enter days"
-              value={formData.length_of_stay}
-              onChange={(e) => handleInputChange('length_of_stay', e.target.value)}
-            />
+          {renderField('age', 'Patient Age', 'number', undefined, true, 'Enter age')}
+          {renderField('length_of_stay', 'Length of Stay (days)', 'number', undefined, false, 'Enter days')}
+        </div>
+
+        <Separator />
+
+        <div className="space-y-4">
+          <h4 className="font-semibold text-sm flex items-center space-x-2">
+            <Activity className="h-4 w-4 text-primary" />
+            <span>Medical Procedures & Medications</span>
+          </h4>
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            {renderField('num_lab_procedures', 'Lab Procedures', 'number', undefined, false, 'Number of procedures')}
+            {renderField('num_other_procedures', 'Other Procedures', 'number', undefined, false, 'Number of procedures')}
+            {renderField('num_medications', 'Medications', 'number', undefined, false, 'Number of medications')}
           </div>
         </div>
 
         <Separator />
 
         <div className="space-y-4">
-          <h4 className="font-semibold text-sm">Medical Procedures & Medications</h4>
+          <h4 className="font-semibold text-sm flex items-center space-x-2">
+            <Activity className="h-4 w-4 text-primary" />
+            <span>Healthcare Utilization (Past Year)</span>
+          </h4>
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-            <div className="space-y-2">
-              <Label htmlFor="num_lab_procedures">Lab Procedures</Label>
-              <Input
-                id="num_lab_procedures"
-                type="number"
-                placeholder="Number of procedures"
-                value={formData.num_lab_procedures}
-                onChange={(e) => handleInputChange('num_lab_procedures', e.target.value)}
-              />
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="num_other_procedures">Other Procedures</Label>
-              <Input
-                id="num_other_procedures"
-                type="number"
-                placeholder="Number of procedures"
-                value={formData.num_other_procedures}
-                onChange={(e) => handleInputChange('num_other_procedures', e.target.value)}
-              />
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="num_medications">Medications</Label>
-              <Input
-                id="num_medications"
-                type="number"
-                placeholder="Number of medications"
-                value={formData.num_medications}
-                onChange={(e) => handleInputChange('num_medications', e.target.value)}
-              />
-            </div>
+            {renderField('outpatient_visits', 'Outpatient Visits', 'number', undefined, false, 'Number of visits')}
+            {renderField('previous_inpatient_stays', 'Previous Inpatient Stays', 'number', undefined, false, 'Number of stays')}
+            {renderField('emergency_visits', 'Emergency Visits', 'number', undefined, false, 'Number of visits')}
           </div>
         </div>
 
         <Separator />
 
         <div className="space-y-4">
-          <h4 className="font-semibold text-sm">Healthcare Utilization (Past Year)</h4>
+          <h4 className="font-semibold text-sm flex items-center space-x-2">
+            <TestTube className="h-4 w-4 text-primary" />
+            <span>Diabetes Management</span>
+          </h4>
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-            <div className="space-y-2">
-              <Label htmlFor="outpatient_visits">Outpatient Visits</Label>
-              <Input
-                id="outpatient_visits"
-                type="number"
-                placeholder="Number of visits"
-                value={formData.outpatient_visits}
-                onChange={(e) => handleInputChange('outpatient_visits', e.target.value)}
-              />
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="previous_inpatient_stays">Previous Inpatient Stays</Label>
-              <Input
-                id="previous_inpatient_stays"
-                type="number"
-                placeholder="Number of stays"
-                value={formData.previous_inpatient_stays}
-                onChange={(e) => handleInputChange('previous_inpatient_stays', e.target.value)}
-              />
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="emergency_visits">Emergency Visits</Label>
-              <Input
-                id="emergency_visits"
-                type="number"
-                placeholder="Number of visits"
-                value={formData.emergency_visits}
-                onChange={(e) => handleInputChange('emergency_visits', e.target.value)}
-              />
-            </div>
-          </div>
-        </div>
-
-        <Separator />
-
-        <div className="space-y-4">
-          <h4 className="font-semibold text-sm">Diabetes Management</h4>
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-            <div>
-              <Label htmlFor="diabetes_medication">Diabetes medication *</Label>
-              <Select value={formData.diabetes_medication} onValueChange={(value) => handleInputChange('diabetes_medication', value)}>
-                <SelectTrigger>
-                  <SelectValue placeholder="Select an option" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="yes">Yes</SelectItem>
-                  <SelectItem value="no">No</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-            <div>
-              <Label htmlFor="glucose_test">Glucose test result *</Label>
-              <Select value={formData.glucose_test} onValueChange={(value) => handleInputChange('glucose_test', value)}>
-                <SelectTrigger>
-                  <SelectValue placeholder="Select result" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="normal">Normal</SelectItem>
-                  <SelectItem value="high">High</SelectItem>
-                  <SelectItem value="not_done">Not Done</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-            <div>
-              <Label htmlFor="a1c_test">A1C test result *</Label>
-              <Select value={formData.a1c_test} onValueChange={(value) => handleInputChange('a1c_test', value)}>
-                <SelectTrigger>
-                  <SelectValue placeholder="Select result" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="normal">Normal</SelectItem>
-                  <SelectItem value="high">High</SelectItem>
-                  <SelectItem value="not_done">Not Done</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
+            {renderField('diabetes_medication', 'Diabetes medication', 'select', [
+              { value: 'yes', label: 'Yes' },
+              { value: 'no', label: 'No' }
+            ], true)}
+            {renderField('glucose_test', 'Glucose test result', 'select', [
+              { value: 'normal', label: 'Normal' },
+              { value: 'high', label: 'High' },
+              { value: 'not_done', label: 'Not Done' }
+            ], true)}
+            {renderField('a1c_test', 'A1C test result', 'select', [
+              { value: 'normal', label: 'Normal' },
+              { value: 'high', label: 'High' },
+              { value: 'not_done', label: 'Not Done' }
+            ], true)}
           </div>
         </div>
 
         <div className="pt-6 border-t">
           <Button 
-            onClick={handleSubmit}
+            type="submit"
             className="w-full md:w-auto px-8"
             disabled={!isFormValid()}
           >
@@ -262,7 +281,7 @@ export const HospitalDataForm: React.FC<HospitalDataFormProps> = ({
             * Required fields. All other fields will default to 0 if not provided.
           </p>
         </div>
-      </div>
+      </form>
     </Card>
   );
 };
