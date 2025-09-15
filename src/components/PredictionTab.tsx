@@ -8,7 +8,7 @@ import { useAuth } from "@/hooks/useAuth";
 import { supabase } from "@/integrations/supabase/client";
 import { Database } from "@/integrations/supabase/types";
 
-// --- TYPE DEFINITIONS ---\r\n
+// --- TYPE DEFINITIONS ---
 interface Patient {
   name: string;
   age: number;
@@ -59,7 +59,7 @@ export const PredictionTab = ({ patient, onPredictionResult }: PredictionTabProp
       const { data: detailsData, error: detailsError } = await supabase
         .from('patient_details')
         .select('*')
-        .eq('profile_id', profile.id) // FIX: Changed 'user_id' to 'profile_id' to match your schema
+        .eq('profile_id', profile.id)
         .single();
 
       if (detailsError) throw detailsError;
@@ -70,7 +70,7 @@ export const PredictionTab = ({ patient, onPredictionResult }: PredictionTabProp
         .from('checkup_responses')
         .select('responses')
         .eq('patient_id', detailsData.id)
-        .order('created_at', { ascending: false }) // Assuming a 'created_at' column
+        .order('created_at', { ascending: false })
         .limit(1)
         .single();
       
@@ -109,7 +109,6 @@ export const PredictionTab = ({ patient, onPredictionResult }: PredictionTabProp
 
     try {
       // 1. Prepare data for the model
-      // This is a placeholder; you must match the exact features your model expects.
       const features = {
         age: patientDetails.age,
         gender: patientDetails.gender,
@@ -120,8 +119,10 @@ export const PredictionTab = ({ patient, onPredictionResult }: PredictionTabProp
         checkup_chest_pain: latestCheckup.chest_pain,
         checkup_cough: latestCheckup.cough,
         checkup_fatigue: latestCheckup.fatigue,
+        checkup_appetite: latestCheckup.appetite,
+        checkup_sleep_quality: latestCheckup.sleep_quality,
+        checkup_medication_adherence: latestCheckup.medication_adherence,
         checkup_allergic_reaction: latestCheckup.allergic_reaction,
-        // You'll need to transform these into numerical format for the model
       };
       
       // 2. Call the Python backend API
@@ -159,8 +160,20 @@ export const PredictionTab = ({ patient, onPredictionResult }: PredictionTabProp
     }
   };
 
+  // FIXED: Use a different navigation approach
   const handleGoToCheckup = () => {
-    navigate('/patient-dashboard?tab=checkup');
+    // Option 1: If you're using tabs within the same component, trigger tab change
+    // This assumes the parent component has a way to switch tabs
+    window.dispatchEvent(new CustomEvent('switchToCheckup'));
+    
+    // Option 2: Alternative approaches depending on your routing setup
+    // navigate('/dashboard?tab=checkup'); // If your route is /dashboard
+    // navigate('/patient?tab=checkup');   // If your route is /patient
+    // navigate('/?tab=checkup');          // If it's on the home page
+    
+    // Option 3: If you need to reload the current page with checkup tab
+    const currentPath = window.location.pathname;
+    navigate(`${currentPath}?tab=checkup`);
   };
 
   return (
