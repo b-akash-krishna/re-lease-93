@@ -9,31 +9,57 @@ export class GeminiService {
     this.apiKey = apiKey;
   }
 
-  async generateResponse(prompt: string, medications: Medication[]): Promise<string> {
+  /**
+   * Generates a text-based response from the Gemini API.
+   * @param userPrompt The user's specific question or request.
+   * @param systemContext An optional system context to provide to the model.
+   * @param medications An optional list of patient medications for context.
+   * @returns A promise that resolves to the generated text response.
+   */
+  async generateTextResponse(
+    userPrompt: string,
+    systemContext?: string,
+    medications?: Medication[]
+  ): Promise<string> {
     if (!this.apiKey) {
       throw new Error('Gemini API key not configured');
     }
 
-    const medicationContext = medications.map(med =>
-      `${med.name} (${med.dosage}) - ${med.frequency} - Purpose: ${med.purpose}`
-    ).join('\n');
+    const medicationContext = medications && medications.length > 0
+      ? `\n\nPatient Medications:\n${medications.map(med =>
+          `${med.name} (${med.dosage}) - ${med.frequency}`
+        ).join('\n')}`
+      : '';
 
-    const systemPrompt = `You are a helpful medical assistant specializing in medication guidance.
+    const finalPrompt = `${systemContext || ''}${medicationContext}\n\nUser Question: ${userPrompt}`;
 
-Current patient medications:
-${medicationContext}
+    const contents = [{ parts: [{ text: finalPrompt }] }];
 
-Guidelines:
-- Provide accurate, helpful information about medications
-- Always recommend consulting healthcare providers for serious concerns
-- Be empathetic and supportive
-- If asked about medications not in the patient's list, provide general information but emphasize consulting their doctor
-- For side effects, drug interactions, or dosage questions, provide helpful guidance but stress the importance of professional medical advice
-- Keep responses concise but informative
-- Never provide specific medical diagnoses
+    return this.callApi(contents);
+  }
 
-User question: ${prompt}`;
+  /**
+   * Generates a response from the Gemini API and attempts to parse it as JSON.
+   * @param jsonPrompt The prompt specifically crafted to get a JSON response.
+   * @returns A promise that resolves to the parsed JSON object.
+   */
+  async generateJSONResponse(jsonPrompt: string): Promise<any> {
+    const contents = [{ parts: [{ text: jsonPrompt }] }];
 
+    try {
+      const textResponse = await this.callApi(contents);
+      // Clean the response to ensure it's valid JSON
+      const jsonMatch = textResponse.match(/```json\n([\s\S]*?)\n```/);
+      const cleanedResponse = jsonMatch ? jsonMatch[1] : textResponse;
+
+      return JSON.parse(cleanedResponse);
+    } catch (error) {
+      console.error('Failed to parse JSON response from Gemini:', error);
+      throw new Error('Invalid JSON response from AI service.');
+    }
+  }
+
+  private async callApi(contents: any): Promise<string> {
     try {
       const response = await fetch(`${this.baseUrl}?key=${this.apiKey}`, {
         method: 'POST',
@@ -41,35 +67,13 @@ User question: ${prompt}`;
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
-          contents: [{
-            parts: [{
-              text: systemPrompt
-            }]
-          }],
+          contents,
           generationConfig: {
             temperature: 0.7,
             topK: 40,
             topP: 0.95,
             maxOutputTokens: 1024,
           },
-          safetySettings: [
-            {
-              category: "HARM_CATEGORY_HATE_SPEECH",
-              threshold: "BLOCK_MEDIUM_AND_ABOVE"
-            },
-            {
-              category: "HARM_CATEGORY_DANGEROUS_CONTENT",
-              threshold: "BLOCK_MEDIUM_AND_ABOVE"
-            },
-            {
-              category: "HARM_CATEGORY_HARASSMENT",
-              threshold: "BLOCK_MEDIUM_AND_ABOVE"
-            },
-            {
-              category: "HARM_CATEGORY_SEXUALLY_EXPLICIT",
-              threshold: "BLOCK_MEDIUM_AND_ABOVE"
-            }
-          ]
         }),
       });
 

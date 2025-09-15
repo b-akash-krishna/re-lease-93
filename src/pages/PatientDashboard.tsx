@@ -24,6 +24,7 @@ import { PatientDetails } from "@/components/PatientDetails";
 import { MedicationTab } from "@/components/MedicationTab";
 import { PostDischargeTab } from "@/components/PostDischargeTab";
 import { CheckupTab } from "@/components/CheckupTab";
+import { PredictionTab } from "@/components/PredictionTab"; // Import PredictionTab
 import { ProtectedRoute } from "@/components/ProtectedRoute";
 import { useAuth } from "@/hooks/useAuth";
 
@@ -129,11 +130,15 @@ const PatientDashboard = () => {
           <TabsContent value="checkup">
             <CheckupTab patient={patient} />
           </TabsContent>
+          
+          <TabsContent value="prediction">
+            <PredictionTab patient={patient} onPredictionResult={(result) => console.log(result)} />
+          </TabsContent>
 
           {/* Bottom Navigation */}
           <div className="fixed bottom-0 left-0 right-0 bg-card border-t border-border shadow-lg">
             <div className="container mx-auto">
-              <TabsList className="grid w-full grid-cols-4 h-16 bg-transparent">
+              <TabsList className="grid w-full grid-cols-5 h-16 bg-transparent">
                 <TabsTrigger 
                   value="details" 
                   className="flex flex-col items-center space-y-1 data-[state=active]:bg-primary/10 data-[state=active]:text-primary"
@@ -161,6 +166,13 @@ const PatientDashboard = () => {
                 >
                   <ClipboardCheck className="h-5 w-5" />
                   <span className="text-xs">Checkup</span>
+                </TabsTrigger>
+                <TabsTrigger 
+                  value="prediction"
+                  className="flex flex-col items-center space-y-1 data-[state=active]:bg-primary/10 data-[state=active]:text-primary"
+                >
+                  <AlertCircle className="h-5 w-5" />
+                  <span className="text-xs">Prediction</span>
                 </TabsTrigger>
               </TabsList>
             </div>

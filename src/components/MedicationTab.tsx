@@ -340,9 +340,10 @@ const Chatbot: React.FC<{
   const [messages, setMessages] = useState<ChatMessage[]>(INITIAL_CHAT_MESSAGES);
   const [newMessage, setNewMessage] = useState("");
   const chatContainerRef = useRef<HTMLDivElement>(null);
-
+  
   const GEMINI_API_KEY = import.meta.env.VITE_GEMINI_API_KEY;
   const geminiService = GEMINI_API_KEY ? new GeminiService(GEMINI_API_KEY) : null;
+  const [isLoading, setIsLoading] = useState(false);
 
   const getFallbackResponse = useCallback((message: string): string => {
     const lowerMessage = message.toLowerCase();
@@ -364,7 +365,7 @@ const Chatbot: React.FC<{
   }, [medications]);
 
   const handleSendMessage = async () => {
-    if (!newMessage.trim()) return;
+    if (!newMessage.trim() || isLoading) return;
 
     const userMessage: ChatMessage = { 
       id: Date.now(), 
@@ -384,11 +385,27 @@ const Chatbot: React.FC<{
     
     const currentMessage = newMessage;
     setNewMessage("");
+    setIsLoading(true);
 
     try {
       let botResponse: string;
+      const systemPrompt = `You are a helpful medical assistant specializing in medication guidance.
+
+Current patient medications:
+${medications.map(med =>
+  `${med.name} (${med.dosage}) - ${med.frequency} - Purpose: ${med.purpose}`
+).join('\n')}
+
+Guidelines:
+- Provide accurate, helpful information about medications
+- Always recommend consulting healthcare providers for serious concerns
+- Be empathetic and supportive
+- If asked about medications not in the patient's list, provide general information but emphasize consulting their doctor
+- For side effects, drug interactions, or dosage questions, provide helpful guidance but stress the importance of professional medical advice
+- Keep responses concise but informative
+- Never provide specific medical diagnoses.`;
       if (geminiService) {
-        botResponse = await geminiService.generateResponse(currentMessage, medications);
+        botResponse = await geminiService.generateTextResponse(currentMessage, systemPrompt, medications);
       } else {
         await new Promise(resolve => setTimeout(resolve, 800));
         botResponse = getFallbackResponse(currentMessage);
@@ -416,6 +433,8 @@ const Chatbot: React.FC<{
             : msg
         )
       );
+    } finally {
+      setIsLoading(false);
     }
 
     setTimeout(() => {
